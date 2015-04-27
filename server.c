@@ -1,3 +1,7 @@
+/* 
+    server.h
+*/
+
 #include <fcntl.h>
 #include <stdio.h>
 #include <sys/stat.h>
@@ -6,6 +10,7 @@
 
 #define MAX_BUF 1024
 #define NAME_LEN 10
+#define SERVER_PATH "/tmp/hairy-happiness"
 
 
 typedef struct {
@@ -18,16 +23,17 @@ typedef struct {
 int main()
 {
     int fd;                          	
-    char * myfifo = "/tmp/myfifo";
+    char myfifo[] = "/tmp/myfifo";
     char buf[MAX_BUF];
+    player * players;
 
-	/* create the FIFO (named pipe) */
-    mkfifo(myfifo, 0666);
+	/* create the FIFO */
+    mkfifo(SERVER_PATH, 0666);
 
     /* open, read, and display the message from the FIFO */
-    fd = open(myfifo, O_RDONLY);
+    fd = open(SERVER_PATH, O_RDWR);
+
     while(1) {
-    	scanf("%1s", bla);
     	read(fd, buf, MAX_BUF);
     	printf("Received: %s\n", buf);	
     }
