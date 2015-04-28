@@ -28,6 +28,9 @@
 #define MSG_ANSWER "answer"
 #define MSG_INCORRECT "no"
 #define MSG_CORRECT "yes"
+#define MSG_END "end"
+#define PL_WIN -1
+#define PL_RIGHT -2
 
 
 /*
@@ -62,6 +65,42 @@ void send_question(char * q, int fifo) {
 }
 
 
+/* 
+    send the question to all the client
+*/
+void send_question_all(char * q, player * players, int n_players, int * players_active) {
+    for (int i = 0; i < n_players; i++) {
+        if (players_active[i]) {
+            send_question(q, players[i].fifo);
+        }
+    }
+}
+
+
+/* 
+    send end information to all the client
+*/
+void send_end_all(player * players, int n_players, int * players_active) {
+
+    char * name;
+    int pt = -1;
+    for (int i = 0; i < n_players; i++) {
+        if (players_active[i] && players[i].pt > pt) {
+            name = players[i].name;
+            pt = players[i].pt;
+        }
+    }
+
+    for (int i = 0; i < n_players; i++) {
+        if (players_active[i]) {
+            char buf[MAX_BUF];
+            sprintf(buf, "%s%s%s", MSG_END, DELIM, name);
+            write(players[i].fifo, buf, MAX_BUF);
+        }
+    }
+}
+
+
 /*
     find the first empty component in the array of the players
 */
@@ -93,6 +132,7 @@ void join(char buf[MAX_BUF], char * strtok_ctx, player players[],  int*present_p
 
         // calculate the point for the new client
         pl.pt = n_players - *present_players - 1;
+        printf("pt: %d\n", pl.pt);
 
         // add the client to the player list
         int empty = find_empty(players_active, n_players);
@@ -128,7 +168,7 @@ void join(char buf[MAX_BUF], char * strtok_ctx, player players[],  int*present_p
 /*
     is the answer right?
 */
-int answer(char buf[MAX_BUF], char * strtok_ctx, player players[], int res) {
+int answer(char buf[MAX_BUF], char * strtok_ctx, player players[], int res, int target_pt) {
     // obtain player
     int i = atoi(strtok_r(NULL, DELIM, &strtok_ctx));
     printf("index %d\n", i);
@@ -138,12 +178,16 @@ int answer(char buf[MAX_BUF], char * strtok_ctx, player players[], int res) {
     int answer = atoi(strtok_r(NULL, DELIM, &strtok_ctx));
 
     if (answer == res) {
-
-        // TODO check if he's winner
-
         // answer is correct
         (*pl).pt++;
-        return -1;
+
+        if ((*pl).pt == target_pt) {
+            // player is the winner
+            return PL_WIN;
+        }
+        else {
+            return PL_RIGHT;
+        }
     }
     else {
         // answer is not correct
@@ -186,7 +230,7 @@ int parse_args(int argc, char *argv[], int *n_players, int *points_to_win) {
                     *n_players = tmp;
                 }
                 else {
-                    // inform the user and set to var defalut value
+                    // inform the user and set to var default value
                     printf("--max argument must be between %d and %d, using %d\n", MIN_PLAYERS, MAX_PLAYERS, MAX_PLAYERS);
                     *n_players = MAX_PLAYERS;
                 }
@@ -197,9 +241,9 @@ int parse_args(int argc, char *argv[], int *n_players, int *points_to_win) {
                 // check restrictions
                 if (tmp >= MIN_POINTS && tmp <= MAX_POINTS) {
                     *points_to_win = tmp;
-                }
+                } 
                 else {
-                    // inform the user and set to var defalut value
+                    // inform the user and set to var default value
                     printf("--win argument must be between %d and %d, using %d\n", MIN_POINTS, MAX_POINTS, MAX_POINTS);
                     *points_to_win = MAX_POINTS;
                 }
@@ -266,19 +310,24 @@ int main(int argc, char *argv[]) {
         }
         else if (!strcmp(op, MSG_ANSWER)) {
             // received answer
-            int info = answer(buf, strtok_ctx, players, res);
-            if (info == -1) {
-                // answer is right
-                // TODO new question for everybody
+            int info = answer(buf, strtok_ctx, players, res, points_to_win);
+            switch (info) {
+                case PL_RIGHT:
+                    // answer is right
+                    res = new_question(question);
+                    // send the question to everybody
+                    send_question_all(question, players, n_players, players_active);
+                    break;
+                case PL_WIN:
+                    // send the classification (or the winner)
+                    send_end_all(players, n_players, players_active);
+                    break;
+                default:
+                    // answer is wrong (ah ah), maybe he didn't understand it right
+                    send_question(question, players[info].fifo);
+                    break;
             }
-            else {
-                // answer is wrong (ah ah), maybe he didn't understand it right
-                send_question(question, players[info].fifo);
-            }
-
         }
-        printf("point %d\n", players[0].pt);
-
     }
     close(in_f);    
     /* remove the FIFO */

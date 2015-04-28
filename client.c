@@ -24,6 +24,7 @@
 #define MSG_ANSWER "answer"
 #define MSG_INCORRECT "no"
 #define MSG_CORRECT "yes"
+#define MSG_END "end"
 
 
 /*
@@ -67,7 +68,10 @@ void interact_with_game(int in_f, int out_f, int index) {
         else if (!strcmp(op, MSG_CORRECT)) {
         }
         else if (!strcmp(op, MSG_INCORRECT)) {
-            printf("sbagliato\n");
+            printf("wrong\n");
+        }
+        else if (!strcmp(op, MSG_END)) {
+            printf("end\n");
         }
     }
 }
