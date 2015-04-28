@@ -43,6 +43,17 @@ int new_question(char * q) {
     return n1 + n2;
 }
 
+
+/* 
+    write the question to the passed fifo
+*/
+void send_question(char * q, int fifo) {
+    char buf[MAX_BUF];
+    sprintf(buf, "q: %s", q);
+    write(fifo, buf, MAX_BUF);
+}
+
+
 /*
     manage answer request by clients
 */
@@ -53,9 +64,22 @@ int answer(char buf[MAX_BUF], char * strtok_ctx, player* players) {
 
 
 /*
+    find the first empty component in the array of the players
+*/
+int find_empty(int * players_active, int n_players) {
+    for (int i = 0; i < n_players; ++i) {
+        if (!players_active[i]) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+
+/*
     manage join request by clients
 */
-void join(char buf[MAX_BUF], char * strtok_ctx, player* players,  int*present_players, int n_players) {
+void join(char buf[MAX_BUF], char * strtok_ctx, player* players,  int*present_players, int n_players, int * players_active, char * q) {
 
     player pl;
     // open output FIFO to the client
@@ -71,20 +95,29 @@ void join(char buf[MAX_BUF], char * strtok_ctx, player* players,  int*present_pl
         // calculate the point for the new client
         pl.pt = n_players - *present_players - 1;
 
-        char msg[MAX_BUF];
-        sprintf(msg, "accepted %d", *present_players);
-        write(pl.fifo, msg, MAX_BUF);
-
         // TODO send the question
 
         // add the client to the player list
-        players[(*present_players)++] = pl;
+        int empty = find_empty(players_active, n_players);
+        // empty should never be -1 at this point
+        players[empty] = pl;
+        players_active[empty] = 1;
+        (*present_players)++;
+
+        // inform the client it has been accepted
+        char msg[MAX_BUF];
+        sprintf(msg, "accepted %d", empty);
+        write(pl.fifo, msg, MAX_BUF);
+        
+        // send the question to the client
+        send_question(q, pl.fifo);
     }
     else {
         // request is rejected
         char msg[MAX_BUF];
         sprintf(msg, "nope");
         write(pl.fifo, msg, MAX_BUF);
+        close(pl.fifo);
     }
 
     printf("%d %s\n", pl.fifo, pl.name);
@@ -166,8 +199,9 @@ int main(int argc, char *argv[]) {
     char buf[MAX_BUF];
     // array of the players
     player players[n_players];
-    // array to store if players are present/active 
-    int players_active[n_players];
+    // array to store if players are present/active
+    // calloc set memory to "0"
+    int *players_active = (int*)calloc(n_players, sizeof(int));
     // number of present player
     int present_players = 0;
     // question message
@@ -195,7 +229,7 @@ int main(int argc, char *argv[]) {
             // a new client requested to join
 
             // TODO check if buf is edited in debian
-            join(buf, strtok_ctx, players, &present_players, n_players);
+            join(buf, strtok_ctx, players, &present_players, n_players, players_active, question);
         } 
         else if (!strcmp(op, "try")) {
             // received answer

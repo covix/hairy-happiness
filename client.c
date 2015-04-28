@@ -50,12 +50,17 @@ int main() {
 
     join_game(out_f, name, client_path);
 
-    // open the input FIFO with read and write permissions to avoid blocks
+    // open the input FIFO with read permissions (blocking)
     int in_f = open(client_path, O_RDONLY);
+    // read the answer to the join request
     read(in_f, buf, MAX_BUF);
+
+
+    // TODO use strtok to undertan the response
+
+
     printf("Accepted? %s\n", buf);
-    close(out_f);
-    // close(in_f);
+    close(in_f);
     unlink(client_path);
 
     return 0;
