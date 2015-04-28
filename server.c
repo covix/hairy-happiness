@@ -13,22 +13,30 @@
 
 
 #define MAX_BUF 1024
-#define NAME_LEN 10
+#define NAME_LEN 11
 #define SERVER_PATH "/tmp/hairy-happiness"
-#define DELIM " "
 #define MAX_PLAYERS 10
 #define MIN_PLAYERS 0
 #define MAX_POINTS 100
 #define MIN_POINTS 10
+#define Q_FORMAT "%d + %d: "
+#define DELIM " "
+#define MSG_QUESTION "q"
+#define MSG_ACCEPTED "accepted"
+#define MSG_NOTACCEPTED "nope"
+#define MSG_JOIN "join"
+#define MSG_ANSWER "answer"
+#define MSG_INCORRECT "no"
+#define MSG_CORRECT "yes"
 
 
 /*
     struct player used to define user's properties
 */
-typedef struct {
+typedef struct player {
 	int fifo;
 	int pt;
-	char * name;
+	char *name;
 } player;
 
 
@@ -38,7 +46,7 @@ typedef struct {
 int new_question(char * q) {
     int n1 = rand() % 100;
     int n2 = rand() % 100;
-    sprintf(q, "%d + %d", n1, n2);
+    sprintf(q, Q_FORMAT, n1, n2);
 
     return n1 + n2;
 }
@@ -49,17 +57,8 @@ int new_question(char * q) {
 */
 void send_question(char * q, int fifo) {
     char buf[MAX_BUF];
-    sprintf(buf, "q: %s", q);
+    sprintf(buf, "%s%s%s", MSG_QUESTION, DELIM, q);
     write(fifo, buf, MAX_BUF);
-}
-
-
-/*
-    manage answer request by clients
-*/
-int answer(char buf[MAX_BUF], char * strtok_ctx, player* players) {
-    // TODO write me
-    return -1;
 }
 
 
@@ -79,7 +78,7 @@ int find_empty(int * players_active, int n_players) {
 /*
     manage join request by clients
 */
-void join(char buf[MAX_BUF], char * strtok_ctx, player* players,  int*present_players, int n_players, int * players_active, char * q) {
+void join(char buf[MAX_BUF], char * strtok_ctx, player players[],  int*present_players, int n_players, int * players_active, char * q) {
 
     player pl;
     // open output FIFO to the client
@@ -95,32 +94,65 @@ void join(char buf[MAX_BUF], char * strtok_ctx, player* players,  int*present_pl
         // calculate the point for the new client
         pl.pt = n_players - *present_players - 1;
 
-        // TODO send the question
-
         // add the client to the player list
         int empty = find_empty(players_active, n_players);
+
         // empty should never be -1 at this point
         players[empty] = pl;
+        players[empty].name = strdup(pl.name);
+
         players_active[empty] = 1;
         (*present_players)++;
 
         // inform the client it has been accepted
         char msg[MAX_BUF];
-        sprintf(msg, "accepted %d", empty);
+        sprintf(msg, "%s%s%d", MSG_ACCEPTED, DELIM, empty);
         write(pl.fifo, msg, MAX_BUF);
-        
+
         // send the question to the client
         send_question(q, pl.fifo);
+
     }
     else {
         // request is rejected
         char msg[MAX_BUF];
-        sprintf(msg, "nope");
+        sprintf(msg, MSG_NOTACCEPTED);
         write(pl.fifo, msg, MAX_BUF);
         close(pl.fifo);
     }
 
     printf("%d %s\n", pl.fifo, pl.name);
+}
+
+
+/*
+    is the answer right?
+*/
+int answer(char buf[MAX_BUF], char * strtok_ctx, player players[], int res) {
+    // obtain player
+    int i = atoi(strtok_r(NULL, DELIM, &strtok_ctx));
+    printf("index %d\n", i);
+    player *pl = &players[i];
+
+    // get the answer
+    int answer = atoi(strtok_r(NULL, DELIM, &strtok_ctx));
+
+    if (answer == res) {
+
+        // TODO check if he's winner
+
+        // answer is correct
+        (*pl).pt++;
+        return -1;
+    }
+    else {
+        // answer is not correct
+        (*pl).pt--;
+        char msg[MAX_BUF];
+        sprintf(msg, "%s%s%d", MSG_INCORRECT, DELIM, (*pl).pt);
+        write((*pl).fifo, msg, MAX_BUF);
+        return i;    
+    }
 }
 
 
@@ -205,7 +237,7 @@ int main(int argc, char *argv[]) {
     // number of present player
     int present_players = 0;
     // question message
-    char question[8];
+    char question[strlen(Q_FORMAT) + 1];
     // result of the question
     int res = new_question(question);
 
@@ -225,16 +257,28 @@ int main(int argc, char *argv[]) {
         char * op = strtok_r(buf, DELIM, &strtok_ctx);
 
         // what operation is it?
-        if (!strcmp(op, "join")) {
+        if (!strcmp(op, MSG_JOIN)) {
             // a new client requested to join
 
             // TODO check if buf is edited in debian
             join(buf, strtok_ctx, players, &present_players, n_players, players_active, question);
-        } 
-        else if (!strcmp(op, "try")) {
-            // received answer
-            answer(buf, strtok_ctx, players);
+
         }
+        else if (!strcmp(op, MSG_ANSWER)) {
+            // received answer
+            int info = answer(buf, strtok_ctx, players, res);
+            if (info == -1) {
+                // answer is right
+                // TODO new question for everybody
+            }
+            else {
+                // answer is wrong (ah ah), maybe he didn't understand it right
+                send_question(question, players[info].fifo);
+            }
+
+        }
+        printf("point %d\n", players[0].pt);
+
     }
     close(in_f);    
     /* remove the FIFO */
