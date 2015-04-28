@@ -17,6 +17,9 @@
 #define SERVER_PATH "/tmp/hairy-happiness"
 
 
+/*
+    send join request to server
+*/
 void join_game(int out_f, char * name, char * client_path) {
     char buf[MAX_BUF];
     sprintf(buf, "join %s %s", client_path, name);
@@ -30,7 +33,7 @@ int main() {
     char name[NAME_LEN];
 
     // generate fifo name using timestamp
-    // TODO: timestamp has seconds precision
+    // FIXME: timestamp has seconds precision
     int ts = (unsigned)time(NULL);    
     sprintf(client_path, "%s%u", client_path, ts);
     // printf("%s\n", client_path);

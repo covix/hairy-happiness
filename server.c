@@ -22,6 +22,9 @@
 #define MIN_POINTS 10
 
 
+/*
+    struct player used to define user's properties
+*/
 typedef struct {
 	int fifo;
 	int pt;
@@ -29,6 +32,9 @@ typedef struct {
 } player;
 
 
+/*
+    generate new question and result
+*/
 int new_question(char * q) {
     int n1 = rand() % 100;
     int n2 = rand() % 100;
@@ -37,37 +43,42 @@ int new_question(char * q) {
     return n1 + n2;
 }
 
-
+/*
+    manage answer request by clients
+*/
 int answer(char buf[MAX_BUF], char * strtok_ctx, player* players) {
     // TODO write me
     return -1;
 }
 
 
-void join(char buf[MAX_BUF], char * strtok_ctx, player* players,  int*active_players, int n_players) {
+/*
+    manage join request by clients
+*/
+void join(char buf[MAX_BUF], char * strtok_ctx, player* players,  int*present_players, int n_players) {
 
     player pl;
     // open output FIFO to the client
     char * fifo_path = strtok_r(NULL, DELIM, &strtok_ctx);
     pl.fifo = open(fifo_path, O_WRONLY);
 
-    if (*active_players < n_players) { 
+    if (*present_players < n_players) { 
         // the player is accepted 
 
         // get the nickname of the new player
         pl.name = strtok_r(NULL, DELIM, &strtok_ctx);
 
         // calculate the point for the new client
-        pl.pt = n_players - *active_players - 1;
+        pl.pt = n_players - *present_players - 1;
 
         char msg[MAX_BUF];
-        sprintf(msg, "accepted %d", *active_players);
+        sprintf(msg, "accepted %d", *present_players);
         write(pl.fifo, msg, MAX_BUF);
 
         // TODO send the question
 
         // add the client to the player list
-        players[(*active_players)++] = pl;
+        players[(*present_players)++] = pl;
     }
     else {
         // request is rejected
@@ -80,8 +91,8 @@ void join(char buf[MAX_BUF], char * strtok_ctx, player* players,  int*active_pla
 }
 
 
-/**
-parse the max palyer number and the winning point from the parameters passed to the executable
+/*
+    parse the max palyer number and the winning point from the parameters passed to the executable
 */
 int parse_args(int argc, char *argv[], int *n_players, int *points_to_win) {
     int option_index = 0;
@@ -145,14 +156,23 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
+
     // TODO check for other servers running
+
 
     srand(time(NULL));
 
+    // buffer for incoming messagges
     char buf[MAX_BUF];
-    player players[MAX_PLAYERS];
-    int active_players = 0;
+    // array of the players
+    player players[n_players];
+    // array to store if players are present/active 
+    int players_active[n_players];
+    // number of present player
+    int present_players = 0;
+    // question message
     char question[8];
+    // result of the question
     int res = new_question(question);
 
 	// create the FIFO 
@@ -175,7 +195,7 @@ int main(int argc, char *argv[]) {
             // a new client requested to join
 
             // TODO check if buf is edited in debian
-            join(buf, strtok_ctx, players, &active_players, n_players);
+            join(buf, strtok_ctx, players, &present_players, n_players);
         } 
         else if (!strcmp(op, "try")) {
             // received answer
