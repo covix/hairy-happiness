@@ -67,7 +67,7 @@ void join(char buf[MAX_BUF], char * strtok_ctx, player* players,  int*active_pla
         // TODO send the question
 
         // add the client to the player list
-        players[*active_players++] = pl;
+        players[(*active_players)++] = pl;
     }
     else {
         // request is rejected
@@ -80,39 +80,50 @@ void join(char buf[MAX_BUF], char * strtok_ctx, player* players,  int*active_pla
 }
 
 
+/**
+parse the max palyer number and the winning point from the parameters passed to the executable
+*/
 int parse_args(int argc, char *argv[], int *n_players, int *points_to_win) {
     int option_index = 0;
     int c;
     int n_flag = 0;
     int p_flag = 0;
 
+    // define the params that the server expects
     static struct option long_options[] = {
             {"max",  required_argument, 0,  'm' },
             {"win",  required_argument, 0,  'w' }
     };
 
+    // iterate over the parameters
     while ((c = getopt_long(argc, argv,"m:w:", 
                    long_options, &option_index )) != -1) {
         int tmp;
         switch (c) {
-            case 'm' :
+            case 'm' : /* --max */
+                // param found
                 n_flag = 1;
+                // convert parameter to int
                 tmp = atoi(optarg);
+                // check restrictions
                 if (tmp >= MIN_PLAYERS && tmp <= MAX_PLAYERS) {
                     *n_players = tmp;
                 }
                 else {
+                    // inform the user and set to var defalut value
                     printf("--max argument must be between %d and %d, using %d\n", MIN_PLAYERS, MAX_PLAYERS, MAX_PLAYERS);
                     *n_players = MAX_PLAYERS;
                 }
             break;
-            case 'w' :
+            case 'w' : /* --win */
                 p_flag = 1;
                 tmp = atoi(optarg);
+                // check restrictions
                 if (tmp >= MIN_POINTS && tmp <= MAX_POINTS) {
                     *points_to_win = tmp;
                 }
                 else {
+                    // inform the user and set to var defalut value
                     printf("--win argument must be between %d and %d, using %d\n", MIN_POINTS, MAX_POINTS, MAX_POINTS);
                     *points_to_win = MAX_POINTS;
                 }
@@ -120,6 +131,7 @@ int parse_args(int argc, char *argv[], int *n_players, int *points_to_win) {
             }
     }
 
+    // check whether all params where passed
     return n_flag && p_flag;
 }
 
@@ -127,8 +139,13 @@ int parse_args(int argc, char *argv[], int *n_players, int *points_to_win) {
 int main(int argc, char *argv[]) {
     int points_to_win, n_players;
     if (!parse_args(argc, argv, &n_players, &points_to_win)) {
+        // if not all parameters are passed...
         printf("Usage: ./sever --max <maxplayers> --win <winningpoint\n");
+        // ...close
+        return -1;
     }
+
+    // TODO check for other servers running
 
     srand(time(NULL));
 
@@ -138,10 +155,7 @@ int main(int argc, char *argv[]) {
     char question[8];
     int res = new_question(question);
 
-    // TODO check for other servers running
-    // TODO parse arguments
-
-	/* create the FIFO */
+	// create the FIFO 
     mkfifo(SERVER_PATH, 0666);
 
     // open the input FIFO with read and write permissions to avoid blocks
