@@ -29,8 +29,10 @@
 #define MSG_INCORRECT "no"
 #define MSG_CORRECT "yes"
 #define MSG_END "end"
-#define PL_WIN -1
-#define PL_RIGHT -2
+#define MSG_QUIT "quit"
+#define PL_WRONG 0
+#define PL_RIGHT 1
+#define PL_WIN 2
 
 
 /*
@@ -101,6 +103,20 @@ void send_end_all(player * players, int n_players, int * players_active) {
 }
 
 
+/* 
+    notify clients that one user left
+*/
+void send_quit_all(char * quit, player * players, int n_players, int * players_active) {
+    for (int i = 0; i < n_players; i++) {
+        if (players_active[i]) {
+            char buf[MAX_BUF];
+            sprintf(buf, "%s%s%s", MSG_QUIT, DELIM, quit);
+            write(players[i].fifo, buf, MAX_BUF);
+        }
+    }
+}
+
+
 /*
     find the first empty component in the array of the players
 */
@@ -150,6 +166,7 @@ void join(char buf[MAX_BUF], char * strtok_ctx, player players[],  int*present_p
         write(pl.fifo, msg, MAX_BUF);
 
         // send the question to the client
+        printf("quest %s\n", q);
         send_question(q, pl.fifo);
 
     }
@@ -168,11 +185,11 @@ void join(char buf[MAX_BUF], char * strtok_ctx, player players[],  int*present_p
 /*
     is the answer right?
 */
-int answer(char buf[MAX_BUF], char * strtok_ctx, player players[], int res, int target_pt) {
+int answer(char buf[MAX_BUF], char * strtok_ctx, player players[], int res, int target_pt, int * i, char * q) {
     // obtain player
-    int i = atoi(strtok_r(NULL, DELIM, &strtok_ctx));
-    printf("index %d\n", i);
-    player *pl = &players[i];
+    *i = atoi(strtok_r(NULL, DELIM, &strtok_ctx));
+    printf("index %d\n", *i);
+    player *pl = &players[*i];
 
     // get the answer
     int answer = atoi(strtok_r(NULL, DELIM, &strtok_ctx));
@@ -186,6 +203,9 @@ int answer(char buf[MAX_BUF], char * strtok_ctx, player players[], int res, int 
             return PL_WIN;
         }
         else {
+            char msg[MAX_BUF];
+            sprintf(msg, "%s%s%d", MSG_CORRECT, DELIM, (*pl).pt);
+            write((*pl).fifo, msg, MAX_BUF);
             return PL_RIGHT;
         }
     }
@@ -195,7 +215,8 @@ int answer(char buf[MAX_BUF], char * strtok_ctx, player players[], int res, int 
         char msg[MAX_BUF];
         sprintf(msg, "%s%s%d", MSG_INCORRECT, DELIM, (*pl).pt);
         write((*pl).fifo, msg, MAX_BUF);
-        return i;    
+        send_question(q, players[*i].fifo);
+        return PL_WRONG;   
     }
 }
 
@@ -267,6 +288,7 @@ int main(int argc, char *argv[]) {
 
 
     // TODO check for other servers running
+    // add un MSG_FERRARELLE
 
 
     srand(time(NULL));
@@ -310,7 +332,8 @@ int main(int argc, char *argv[]) {
         }
         else if (!strcmp(op, MSG_ANSWER)) {
             // received answer
-            int info = answer(buf, strtok_ctx, players, res, points_to_win);
+            int i;
+            int info = answer(buf, strtok_ctx, players, res, points_to_win, &i, question);
             switch (info) {
                 case PL_RIGHT:
                     // answer is right
@@ -322,11 +345,15 @@ int main(int argc, char *argv[]) {
                     // send the classification (or the winner)
                     send_end_all(players, n_players, players_active);
                     break;
-                default:
+                case PL_WRONG:
                     // answer is wrong (ah ah), maybe he didn't understand it right
-                    send_question(question, players[info].fifo);
                     break;
             }
+        }
+        else if (!strcmp(op, MSG_QUIT)) {
+            int i = atoi(strtok_r(NULL, DELIM, &strtok_ctx));
+            players_active[i] = 0;
+            send_quit_all(players[i].name, players, n_players, players_active);
         }
     }
     close(in_f);    

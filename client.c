@@ -10,6 +10,8 @@
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
+#include <pthread.h>
+#include <errno.h>
 
 
 // FIFO write operation are atomic only using at most 1024 bytes
@@ -25,6 +27,15 @@
 #define MSG_INCORRECT "no"
 #define MSG_CORRECT "yes"
 #define MSG_END "end"
+#define MSG_QUIT "quit"
+
+
+/*
+    struct for passing argumnets in pthread_create
+*/
+typedef struct thread_args {
+    int in_f;
+} thread_args;
 
 
 /*
@@ -40,38 +51,67 @@ void join_game(int out_f, char * name, char * client_path) {
 /* 
     manage the user interaction with the game
 */
-void interact_with_game(int in_f, int out_f, int index) {
+void read_fifo(void* args) {
+    thread_args c = *((thread_args*) args);
+
     while(1) {
         // read message
         char buf[MAX_BUF];
-        read(in_f, buf, MAX_BUF);
+        read(c.in_f, buf, MAX_BUF);
 
         // extract the op
         char * buf_dup = strdup(buf);
         char * op = strtok(buf, DELIM);
-
         if (!strcmp(op, MSG_QUESTION)) {
             // obtain only the question
             buf_dup += 2;
             write(1, buf_dup, strlen(buf_dup));
-            
-            // wait for the user to answer
-            char answer[MAX_BUF];
-            char answer_buf[MAX_BUF];
-            scanf("%s", answer);
-            sprintf(answer_buf, "%s%s%d%s%s", MSG_ANSWER, DELIM, index, DELIM, answer);
-            printf("%s\n", answer_buf);
-
-            // send answer
-            write(out_f, answer_buf, MAX_BUF);
         }
         else if (!strcmp(op, MSG_CORRECT)) {
+            printf("correct\n");
         }
         else if (!strcmp(op, MSG_INCORRECT)) {
             printf("wrong\n");
         }
         else if (!strcmp(op, MSG_END)) {
             printf("end\n");
+        }
+        else if (!strcmp(op, MSG_QUIT)) {
+            printf("someone has quit\n");
+        }
+    }
+}
+
+
+void read_console(int out_f, int index) {
+    while (1) {
+        // wait for the user to answer
+        int answer;
+        char buf[MAX_BUF];
+        char input[MAX_BUF];
+
+        read(0, input, MAX_BUF);
+
+        if (!strcmp(input, "quit\n")) {
+            sprintf(buf, "%s%s%d", MSG_QUIT, DELIM, index);
+            write(out_f, buf, MAX_BUF);   
+            exit(0);
+        }
+        else {
+            errno = 0;
+            // convert the number
+            answer = strtol(input, NULL, 10);
+
+            if (errno != 0 && answer == 0) {
+                // conversion error
+                // TODO what about mutex?
+                printf("Insert a number please\n");
+            }
+            else {
+                // send the user answer
+                sprintf(buf, "%s%s%d%s%d", MSG_ANSWER, DELIM, index, DELIM, answer);
+                write(out_f, buf, MAX_BUF);
+            }
         }
     }
 }
@@ -115,8 +155,19 @@ int main() {
     else {
         // get the index of this client on the server
         index = atoi(strtok(NULL, DELIM));
+        
+        // create thread for listening to the server
+        pthread_t thread_id;
 
-        interact_with_game(in_f, out_f, index);
+        // instance thread_args struct
+        thread_args args;
+        args.in_f = in_f;
+
+        // create the thread
+        pthread_create(&thread_id, NULL, (void*)read_fifo, (void*)&args);
+
+        // keep sending user answer
+        read_console(out_f, index);
     }
 
 
