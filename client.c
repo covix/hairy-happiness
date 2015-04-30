@@ -44,7 +44,8 @@ typedef struct thread_args {
 void join_game(int out_f, char * name, char * client_path) {
     char buf[MAX_BUF];
     sprintf(buf, "%s%s%s%s%s", MSG_JOIN, DELIM, client_path, DELIM, name);
-    write(out_f, buf, MAX_BUF);
+    write(out_f, buf, strlen(buf));
+    
 }
 
 
@@ -86,15 +87,16 @@ void read_fifo(void* args) {
 void read_console(int out_f, int index) {
     while (1) {
         // wait for the user to answer
-        int answer;
+        long answer;
         char buf[MAX_BUF];
         char input[MAX_BUF];
 
-        read(0, input, MAX_BUF);
+        size_t len = read(0, input, MAX_BUF);
+        input[len] = '\0';
 
         if (!strcmp(input, "quit\n")) {
             sprintf(buf, "%s%s%d", MSG_QUIT, DELIM, index);
-            write(out_f, buf, MAX_BUF);   
+            write(out_f, buf, strlen(buf));
             exit(0);
         }
         else {
@@ -109,8 +111,8 @@ void read_console(int out_f, int index) {
             }
             else {
                 // send the user answer
-                sprintf(buf, "%s%s%d%s%d", MSG_ANSWER, DELIM, index, DELIM, answer);
-                write(out_f, buf, MAX_BUF);
+                sprintf(buf, "%s%s%d%s%ld", MSG_ANSWER, DELIM, index, DELIM, answer);
+                write(out_f, buf, strlen(buf));
             }
         }
     }
@@ -143,16 +145,18 @@ int main() {
     // open the input FIFO with read permissions (blocking)
     int in_f = open(client_path, O_RDONLY);
     // read the answer to the join request
-    read(in_f, buf, MAX_BUF);
-
+    size_t len = read(in_f, buf, MAX_BUF);
+    buf[len] = '\0';
 
     // TODO use strtok to undertan the response
     int index;
     char * op = strtok(buf, DELIM);
-    if (!strcmp(buf, MSG_JOIN)) {
+    if (strcmp(op, MSG_ACCEPTED))
+    {
         printf("The server didn't accepted you :(\n");
     }
-    else {
+    else
+    {
         // get the index of this client on the server
         index = atoi(strtok(NULL, DELIM));
         
