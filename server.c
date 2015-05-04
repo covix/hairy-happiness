@@ -4,14 +4,14 @@
 
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
 #include <getopt.h>
-
-#define ACTIVE_PLAYERS(x)  (sizeof(x) / sizeof(player))
+#include <errno.h>
 
 #define MAX_BUF 1024
 #define NAME_LEN 11
@@ -20,8 +20,9 @@
 #define MIN_PLAYERS 0
 #define MAX_POINTS 100
 #define MIN_POINTS 10
-#define Q_FORMAT "%d + %d: "
+#define Q_FORMAT "%d + %d ="
 #define DELIM " "
+
 #define MSG_QUESTION "q"
 #define MSG_ACCEPTED "accepted"
 #define MSG_NOTACCEPTED "nope"
@@ -31,9 +32,22 @@
 #define MSG_CORRECT "yes"
 #define MSG_END "end"
 #define MSG_QUIT "quit"
-#define PL_WRONG 0
-#define PL_RIGHT 1
-#define PL_WIN 2
+
+
+#define ERR_NOTACCSF -1
+#define ERR_NOTACCAE -2
+
+ssize_t writeLella(int index, char * text);
+char * toString ( const char * format, ... )
+{
+    char buffer[MAX_BUF];
+    va_list args;
+    va_start (args, format);
+    vsprintf (buffer,format, args);
+    //perror (buffer);
+    va_end (args);
+    return strdup(buffer);
+}
 
 
 
@@ -51,13 +65,19 @@ typedef struct player {
 player *players;
 // max players acceptable
 int num_players;
+// point to win
+int points_to_win;
 
 
-
+// question message
+char* question;
+// result of the question
+int res;
 /*
     generate new question and result
 */
-int new_question(char * q) {
+int createQuestion(char * q)
+{
     int n1 = rand() % 100;
     int n2 = rand() % 100;
     sprintf(q, Q_FORMAT, n1, n2);
@@ -66,204 +86,317 @@ int new_question(char * q) {
 }
 
 
-/* 
-    write the question to the passed fifo
-*/
-void send_question(char * q, int fifo) {
-    char buf[MAX_BUF];
-    sprintf(buf, "%s%s%s", MSG_QUESTION, DELIM, q);
-    write(fifo, buf, MAX_BUF);
-}
 
 
 /* 
     send the question to all the client
 */
-void send_question_all(char * q) {
-    for (int i = 0; i < num_players; i++) {
-        if (players[i].active) {
-            send_question(q, players[i].fifo);
-        }
-    }
+void sendQuestionToAll()
+{
+    for (int i = 0; i < num_players; i++)
+        if (players[i].active)
+            writeLella(i, toString("%s%s%s", MSG_QUESTION, DELIM, question));
 }
-
 
 /* 
     send end information to all the client
 */
-void send_end_all() {
+void sendEndGameToAll(player winner)
+{
 
-    char * name = "";
-    int point = -1;
-    for (int i = 0; i < num_players; i++) {
-        if (players[i].active && players[i].point > point) {
-            name = players[i].name;
-            point = players[i].point;
-        }
-    }
-
-    for (int i = 0; i < num_players; i++) {
-        if (players[i].active) {
-            char buf[MAX_BUF];
-            sprintf(buf, "%s%s%s", MSG_END, DELIM, name);
-            write(players[i].fifo, buf, MAX_BUF);
-        }
-    }
+    for (int i = 0; i < num_players; i++)
+        if (players[i].active)
+            writeLella(i, toString("%s%s%s%s%d", MSG_END, DELIM, winner.name, DELIM, winner.point));
 }
-
 
 /* 
     notify clients that one user left
 */
-void send_quit_all(player pl) {
-    for (int i = 0; i < num_players; i++) {
-        if (players[i].active) {
-            char buf[MAX_BUF];
-            sprintf(buf, "%s%s%s", MSG_QUIT, DELIM, pl.name);
-            write(players[i].fifo, buf, MAX_BUF);
-        }
-    }
+void sendQuitToAll(player pl)
+{
+    for (int i = 0; i < num_players; i++)
+        if (players[i].active)
+            writeLella(i, toString("%s%s%s", MSG_QUIT, DELIM, pl.name));
 }
 
 
 /*
-    find the first empty component in the array of the players
-*/
-int find_empty() {
-    for (int i = 0; i < num_players; ++i)
-    {
-        player pl = players[i];
-        if (!pl.active) {
-            return i;
+ notify clients that one user join
+ */
+void sendJoinToAll(player pl)
+{
+    for (int i = 0; i < num_players; i++)
+        if (players[i].active && strcmp(players[i].name, pl.name))
+        {
+            writeLella(i, toString("%s%s%s%s%d", MSG_JOIN, DELIM, pl.name, DELIM, pl.point));
         }
-    }
-    return -1;
 }
+
+ssize_t writeLella(int index, char * text)
+{
+    ssize_t erro = write(players[index].fifo, text, MAX_BUF);
+    if(erro == -1)
+    {
+        // print info to server
+        printf("Player death: '%s'\n", players[index].name);
+        
+        // disable the user
+        players[index].active = 0;
+        
+        // inform to all of a user's death
+        sendQuitToAll(players[index]);
+    }
+    
+    return erro;
+}
+
 
 
 
 /*
  is the answer right?
  */
-int answer(char buf[MAX_BUF], char * strtok_ctx, int res, int target_point, int * i, char * q) {
+void answer(char * response)
+{
     // obtain player
-    *i = atoi(strtok_r(NULL, DELIM, &strtok_ctx));
-    printf("index %d\n", *i);
-    player *pl = &players[*i];
-    
+    int index = atoi(strtok_r(NULL, DELIM, &response));
     // get the answer
-    int answer = atoi(strtok_r(NULL, DELIM, &strtok_ctx));
+    int answer = atoi(strtok_r(NULL, DELIM, &response));
     
-    if (answer == res) {
-        // answer is correct
-        (*pl).point++;
+    
+    if (answer == res) // answer is correct
+    {
+        players[index].point++;
         
-        if ((*pl).point == target_point) {
-            // player is the winner
-            return PL_WIN;
+        if (players[index].point == points_to_win) // player is the winner
+        {
+            printf("The winner is %s with %d point\n", players[index].name, players[index].point);
+            
+            sendEndGameToAll(players[index]);
         }
-        else {
-            char msg[MAX_BUF];
-            sprintf(msg, "%s%s%d", MSG_CORRECT, DELIM, (*pl).point);
-            write((*pl).fifo, msg, MAX_BUF);
-            return PL_RIGHT;
+        else // answer is right
+        {
+            printf("Correct answer by %s (point:%d)\n", players[index].name, players[index].point);
+            
+            writeLella(index, toString("%s%s%d", MSG_CORRECT, DELIM, players[index].point));
+
+            // create and send the question to everybody
+            res = createQuestion(question);
+            printf("Generate other question: %s (%d)\n", question, res);
+            sendQuestionToAll();
         }
     }
-    else {
-        // answer is not correct
-        (*pl).point--;
-        char msg[MAX_BUF];
-        sprintf(msg, "%s%s%d", MSG_INCORRECT, DELIM, (*pl).point);
-        write((*pl).fifo, msg, MAX_BUF);
-        send_question(q, players[*i].fifo);
-        return PL_WRONG;
+    else // answer is not correct
+    {
+        players[index].point--;
+        
+        
+        printf("Incorrect answer by %s (point:%d)\n", players[index].name, players[index].point);
+        
+        writeLella(index, toString("%s%s%d", MSG_INCORRECT, DELIM, players[index].point));
+        writeLella(index, toString("%s%s%s", MSG_QUESTION, DELIM, question));
     }
+    
+    
+}
+
+/*
+ find the first empty component in the array of the players
+ */
+int indexOfEmptyAndNoNameAlreadyExist(char *name)
+{
+    for (int i = 0; i < num_players; i++)
+        if (players[i].active)
+            if (!strcmp(players[i].name, name))
+                return ERR_NOTACCAE;
+    
+    for (int i = 0; i < num_players; ++i)
+        if (!players[i].active)
+            return i;
+    
+    return ERR_NOTACCSF;
+}
+
+/*
+ return the number of active player
+ */
+int countPlayer()
+{
+    int count = 0;
+    for (int i = 0; i < num_players; ++i)
+        if (players[i].active)
+            count++;
+    
+    return count;
 }
 
 /*
     manage join request by clients
 */
-void join(char buf[MAX_BUF], char * response, char * question)
+void joinPlayer(char * response)
 {
-    int present_players = ACTIVE_PLAYERS(players);
     player pl;
-    
-    
     // open output FIFO to the client
-    char * fifo_path = strtok_r(NULL, DELIM, &response);
-    pl.fifo = open(fifo_path, O_WRONLY);
-    
+    pl.fifo = open(strtok_r(NULL, DELIM, &response), O_WRONLY);
     // get the nickname of the new player
     pl.name = strdup(strtok_r(NULL, DELIM, &response));
+    // calculate the point for the new client
+    pl.point = num_players - countPlayer() - 1;
+    // active player
+    pl.active = 1;
+
+    //TODO Check already exist name
     
-    
-    if (present_players < num_players)
+    int index = indexOfEmptyAndNoNameAlreadyExist(pl.name);
+
+    if (index > -1) // the player is accepted
     {
-        // the player is accepted 
-
-        // calculate the point for the new client
-        pl.point = num_players - present_players - 1;
-        pl.active = 1;
-
         // add the client to the player list
-        int index = find_empty();
-
-        // empty should never be -1 at this point
         players[index] = pl;
-        present_players++;
         
         // print info to server
-        printf("Player join: '%s'(%d)\n", pl.name, index);
+        printf("Player join: '%s'(%d) with %d point\n", pl.name, index, pl.point);
 
         // inform the client it has been accepted
-        char msg[MAX_BUF];
-        sprintf(msg, "%s%s%d", MSG_ACCEPTED, DELIM, index);
-        write(pl.fifo, msg, MAX_BUF);
+        writeLella(index, toString("%s%s%d%s%d", MSG_ACCEPTED, DELIM, index, DELIM, pl.point));
 
         // send the question to the client
-        send_question(question, pl.fifo);
+        writeLella(index, toString("%s%s%s", MSG_QUESTION, DELIM, question));
         
-        //TODO send to all join new player
-
+        // send to all join new player
+        sendJoinToAll(players[index]);
     }
-    else
+    else // request is rejected
     {
-        // request is rejected
-        
         // print info to server
-        printf("Player rejected (server full): '%s'\n", pl.name);
+        if(index == ERR_NOTACCSF)
+            printf("Player rejected: (server full): '%s'\n", pl.name);
+        else if(index == ERR_NOTACCAE)
+            printf("Player rejected: (name already exist): '%s'\n", pl.name);
         
         // send info to client rejected
-        char msg[MAX_BUF];
-        sprintf(msg, MSG_NOTACCEPTED);
-        write(pl.fifo, msg, MAX_BUF);
+        write(pl.fifo,toString("%s%s%d", MSG_NOTACCEPTED, DELIM, index), MAX_BUF);
         close(pl.fifo);
     }
+}
+
+void leftPlayer(char * response)
+{
+    int index = atoi(strtok_r(NULL, DELIM, &response));
+    
+    // print info to server
+    printf("Player exit: '%s'\n", players[index].name);
+    
+    // disable the user
+    players[index].active = 0;
+    close(players[index].fifo);
+    
+    // inform to all of a user's left
+    sendQuitToAll(players[index]);
+}
+
+int otherServerIsUp()
+{
+    return 0;
+}
+
+
+int main(int argc, char *argv[])
+{
+    signal(SIGPIPE, SIG_IGN);
+    srand((unsigned int)time(NULL));
+    
+    points_to_win = 13;
+    num_players = 10;
+    
+    // check for other servers running
+    if(otherServerIsUp() == 1)
+        return -1;
+    
+    // array of the players
+    players = calloc(num_players, sizeof(*players));
+    // question message
+    question = calloc(strlen(Q_FORMAT) + 1, sizeof(*question));
+    // result of the question
+    res = createQuestion(question);
+
+    
+	// create the FIFO 
+    mkfifo(SERVER_PATH, 0666);
+    // open the input FIFO with read and write permissions to avoid blocks
+    int serverFIFO;
+    if((serverFIFO = open(SERVER_PATH, O_RDWR)) != -1)
+        printf("Server is start...\nGenerate the first question: %s (%d)\n", question, res);
+    
+    
+    while (serverFIFO != -1)
+    {
+        // buffer for incoming messagges
+        char buf[MAX_BUF];
+        size_t len;
+        
+        // read incoming messages from the FIFO
+    	if((len = read(serverFIFO, buf, MAX_BUF)) <= 0) continue;
+        buf[len] = '\0';
+        
+        // get the operation requested by client
+        char * data;
+        char * operation = strtok_r(buf, DELIM, &data);
+
+        // what operation is it?
+        if (!strcmp(operation, MSG_JOIN)) // a new client requested to join
+        {
+            joinPlayer(data);
+        }
+        else if (!strcmp(operation, MSG_QUIT)) // a client left
+        {
+            leftPlayer(data);
+        }
+        else if (!strcmp(operation, MSG_ANSWER)) // received answer
+        {
+            answer(data);
+        }
+        
+    }
+    
+    close(serverFIFO);    
+    /* remove the FIFO */
+    unlink(SERVER_PATH);
+
+
+    return 0;
 }
 
 
 
 
 
+//if (!parse_args(argc, argv, &max_players, &points_to_win)) {
+// if not all parameters are passed...
+//    printf("Usage: ./sever --max <maxplayers> --win <winningpoint\n");
+// ...close
+//    return -1;
+//}
+
 /*
-    parse the max palyer number and the winning point from the parameters passed to the executable
-*/
+ parse the max palyer number and the winning point from the parameters passed to the executable
+ */
 int parse_args(int argc, char *argv[], int *max_players, int *points_to_win)
 {
     int option_index = 0;
     int c;
     int n_flag = 0;
     int p_flag = 0;
-
+    
     // define the params that the server expects
     static struct option long_options[] = {
-            {"max",  required_argument, 0,  'm' },
-            {"win",  required_argument, 0,  'w' }
+        {"max",  required_argument, 0,  'm' },
+        {"win",  required_argument, 0,  'w' }
     };
-
+    
     // iterate over the parameters
-    while ((c = getopt_long(argc, argv,"m:w:", 
-                   long_options, &option_index )) != -1) {
+    while ((c = getopt_long(argc, argv,"m:w:",
+                            long_options, &option_index )) != -1) {
         int tmp;
         switch (c) {
             case 'm' : /* --max */
@@ -280,124 +413,23 @@ int parse_args(int argc, char *argv[], int *max_players, int *points_to_win)
                     printf("--max argument must be between %d and %d, using %d\n", MIN_PLAYERS, MAX_PLAYERS, MAX_PLAYERS);
                     *max_players = MAX_PLAYERS;
                 }
-            break;
+                break;
             case 'w' : /* --win */
                 p_flag = 1;
                 tmp = atoi(optarg);
                 // check restrictions
                 if (tmp >= MIN_POINTS && tmp <= MAX_POINTS) {
                     *points_to_win = tmp;
-                } 
+                }
                 else {
                     // inform the user and set to var default value
                     printf("--win argument must be between %d and %d, using %d\n", MIN_POINTS, MAX_POINTS, MAX_POINTS);
                     *points_to_win = MAX_POINTS;
                 }
                 break;
-            }
+        }
     }
-
+    
     // check whether all params where passed
     return n_flag && p_flag;
-}
-
-
-int main(int argc, char *argv[])
-{
-    int points_to_win = 13;
-    num_players = 10;
-    //if (!parse_args(argc, argv, &max_players, &points_to_win)) {
-        // if not all parameters are passed...
-    //    printf("Usage: ./sever --max <maxplayers> --win <winningpoint\n");
-        // ...close
-    //    return -1;
-    //}
-
-
-    // TODO check for other servers running
-    // add un MSG_FERRARELLE
-
-    srand((unsigned int)time(NULL));
-    
-    // array of the players
-    players = calloc(num_players, sizeof(*players));
-    
-    
-    // buffer for incoming messagges
-    char buf[MAX_BUF];
-    // question message
-    char question[strlen(Q_FORMAT) + 1];
-    // result of the question
-    int res = new_question(question);
-
-    
-	// create the FIFO 
-    mkfifo(SERVER_PATH, 0666);
-    // open the input FIFO with read and write permissions to avoid blocks
-    int serverFIFO = open(SERVER_PATH, O_RDWR);
-
-    while (1)
-    {
-        // read incoming messages from the FIFO
-    	size_t len = read(serverFIFO, buf, MAX_BUF);
-        buf[len] = '\0';
-        if(strlen(buf) == 0)
-            continue;
-        
-        printf("%s", buf);
-        
-        // get the operation requested by client
-        char * strtok_ctx;
-        char * op = strtok_r(buf, DELIM, &strtok_ctx);
-
-        // what operation is it?
-        if (!strcmp(op, MSG_JOIN))
-        {
-            // a new client requested to join
-
-            // TODO check if buf is edited in debian
-            join(buf, strtok_ctx, question);
-        }
-        else if (!strcmp(op, MSG_ANSWER))
-        {
-            // received answer
-            int i;
-            int info = answer(buf, strtok_ctx, res, points_to_win, &i, question);
-            switch (info)
-            {
-                case PL_RIGHT:
-                    // answer is right
-                    res = new_question(question);
-                    // send the question to everybody
-                    send_question_all(question);
-                    break;
-                case PL_WIN:
-                    // send the classification (or the winner)
-                    send_end_all();
-                    break;
-                case PL_WRONG:
-                    // answer is wrong (ah ah), maybe he didn't understand it right
-                    break;
-            }
-        }
-        else if (!strcmp(op, MSG_QUIT))
-        {
-            //player exit
-            
-            int i = atoi(strtok_r(NULL, DELIM, &strtok_ctx));
-            // print info to server
-            printf("Player exit: '%s'\n", players[i].name);
-            players[i].active = 0;
-            
-            send_quit_all(players[i]);
-        }
-        
-        
-    }
-    close(serverFIFO);    
-    /* remove the FIFO */
-    unlink(SERVER_PATH);
-
-
-    return 0;
 }
