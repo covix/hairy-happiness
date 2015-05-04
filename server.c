@@ -1,6 +1,6 @@
-/* 
-    server.h
-*/
+/*
+ server.h
+ */
 
 #include <fcntl.h>
 #include <stdio.h>
@@ -12,6 +12,7 @@
 #include <time.h>
 #include <getopt.h>
 #include <errno.h>
+#include <poll.h>
 
 #define MAX_BUF 1024
 #define NAME_LEN 11
@@ -21,7 +22,7 @@
 #define MAX_POINTS 100
 #define MIN_POINTS 10
 #define Q_FORMAT "%d + %d ="
-#define DELIM " "
+#define DELIM ";"
 
 #define MSG_QUESTION "q"
 #define MSG_ACCEPTED "accepted"
@@ -32,6 +33,8 @@
 #define MSG_CORRECT "yes"
 #define MSG_END "end"
 #define MSG_QUIT "quit"
+#define MSG_FERRARELLE "server?"
+#define MSG_ROCCHETTA "alive"
 
 
 #define ERR_NOTACCSF -1
@@ -49,6 +52,7 @@
 
 
 ssize_t writeLella(int index, char * text);
+
 char * toString ( const char * format, ... )
 {
     char buffer[MAX_BUF];
@@ -63,13 +67,13 @@ char * toString ( const char * format, ... )
 
 
 /*
-    struct player used to define user's properties
-*/
+ struct player used to define user's properties
+ */
 typedef struct player {
-	int fifo;
-	int point;
+    int fifo;
+    int point;
     int active;
-	char *name;
+    char *name;
 } player;
 
 // array of the players
@@ -85,23 +89,23 @@ char* question;
 // result of the question
 int res;
 /*
-    generate new question and result
-*/
+ generate new question and result
+ */
 int createQuestion(char * q)
 {
     int n1 = rand() % 100;
     int n2 = rand() % 100;
     sprintf(q, Q_FORMAT, n1, n2);
-
+    
     return n1 + n2;
 }
 
 
 
 
-/* 
-    send the question to all the client
-*/
+/*
+ send the question to all the client
+ */
 void sendQuestionToAll()
 {
     for (int i = 0; i < num_players; i++)
@@ -109,20 +113,20 @@ void sendQuestionToAll()
             writeLella(i, toString("%s%s%s", MSG_QUESTION, DELIM, question));
 }
 
-/* 
-    send end information to all the client
-*/
+/*
+ send end information to all the client
+ */
 void sendEndGameToAll(player winner)
 {
-
+    
     for (int i = 0; i < num_players; i++)
         if (players[i].active)
             writeLella(i, toString("%s%s%s%s%d", MSG_END, DELIM, winner.name, DELIM, winner.point));
 }
 
-/* 
-    notify clients that one user left
-*/
+/*
+ notify clients that one user left
+ */
 void sendQuitToAll(player pl)
 {
     for (int i = 0; i < num_players; i++)
@@ -163,6 +167,16 @@ ssize_t writeLella(int index, char * text)
 
 
 
+void thisIsMyTerritory(char * response)
+{
+    player pl;
+    // open output FIFO to the client
+    pl.fifo = open(strtok_r(NULL, DELIM, &response), O_WRONLY);
+    
+    write(pl.fifo, toString("%s%s", MSG_ROCCHETTA, DELIM), MAX_BUF);
+    close(pl.fifo);
+}
+
 
 /*
  is the answer right?
@@ -190,7 +204,7 @@ void answer(char * response)
             printf(KBLU"Correct answer by %s (point:%d)\n"RESET, players[index].name, players[index].point);
             
             writeLella(index, toString("%s%s%d", MSG_CORRECT, DELIM, players[index].point));
-
+            
             // create and send the question to everybody
             res = createQuestion(question);
             printf(KBLU"Generate other question: %s (%d)\n"RESET, question, res);
@@ -242,8 +256,8 @@ int countPlayer()
 }
 
 /*
-    manage join request by clients
-*/
+ manage join request by clients
+ */
 void joinPlayer(char * response)
 {
     player pl;
@@ -255,11 +269,11 @@ void joinPlayer(char * response)
     pl.point = num_players - countPlayer() - 1;
     // active player
     pl.active = 1;
-
+    
     //TODO Check already exist name
     
     int index = indexOfEmptyAndNoNameAlreadyExist(pl.name);
-
+    
     if (index > -1) // the player is accepted
     {
         // add the client to the player list
@@ -267,10 +281,10 @@ void joinPlayer(char * response)
         
         // print info to server
         printf(KGRN "Player join: '%s'(%d) with %d point\n" RESET, pl.name, index, pl.point);
-
+        
         // inform the client it has been accepted
         writeLella(index, toString("%s%s%d%s%d", MSG_ACCEPTED, DELIM, index, DELIM, pl.point));
-
+        
         // send the question to the client
         writeLella(index, toString("%s%s%s", MSG_QUESTION, DELIM, question));
         
@@ -306,9 +320,42 @@ void leftPlayer(char * response)
     sendQuitToAll(players[index]);
 }
 
+
 int otherServerIsUp()
 {
-    return 0;
+    char server_tmp_path[30];
+    // generate fifo name using timestamp
+    sprintf(server_tmp_path, "/tmp/%u", (unsigned)time(NULL));
+    // create the FIFO
+    mkfifo(server_tmp_path, 0666);    // open the input FIFO with read permissions (blocking)
+    int recvFIFO = open(server_tmp_path, O_RDWR);
+    
+    // open the output FIFO with write permissions and wait for the server to exist
+    int sendFIFO = open(SERVER_PATH, O_RDWR);
+    
+    // look for server
+    write(sendFIFO, toString("%s%s%s", MSG_FERRARELLE, DELIM, server_tmp_path), MAX_BUF);
+    
+    struct pollfd fds[1];
+    int timeout_msecs = 2 * 1000;
+    int ret;
+    int i;
+    
+    fds[0].fd = recvFIFO;
+    fds[0].events = POLLIN;
+    
+    printf("Looking for server already running...\n");
+    i = poll(fds, 1, timeout_msecs);
+    
+    if (i > 0)
+    {
+        // read the answer of an already present server
+        char buf[MAX_BUF];
+        size_t len = read(recvFIFO, buf, MAX_BUF);
+        buf[len] = '\0';
+        printf("Another server is already running\n");
+    }
+    return i;
 }
 
 
@@ -321,7 +368,7 @@ int main(int argc, char *argv[])
     num_players = 10;
     
     // check for other servers running
-    if(otherServerIsUp() == 1)
+    if(otherServerIsUp() != 0)
         return -1;
     
     // array of the players
@@ -330,14 +377,14 @@ int main(int argc, char *argv[])
     question = calloc(strlen(Q_FORMAT) + 1, sizeof(*question));
     // result of the question
     res = createQuestion(question);
-
     
-	// create the FIFO 
+    
+    // create the FIFO
     mkfifo(SERVER_PATH, 0666);
     // open the input FIFO with read and write permissions to avoid blocks
     int serverFIFO;
     if((serverFIFO = open(SERVER_PATH, O_RDWR)) != -1)
-        printf("Server is start...\n"KBLU "Generate the first question: %s (%d)\n" RESET, question, res);
+        printf("Server started...\n"KBLU "First question generated: %s (%d)\n" RESET, question, res);
     
     
     while (serverFIFO != -1)
@@ -347,13 +394,12 @@ int main(int argc, char *argv[])
         size_t len;
         
         // read incoming messages from the FIFO
-    	if((len = read(serverFIFO, buf, MAX_BUF)) <= 0) continue;
+        if((len = read(serverFIFO, buf, MAX_BUF)) <= 0) continue;
         buf[len] = '\0';
-        
         // get the operation requested by client
         char * data;
         char * operation = strtok_r(buf, DELIM, &data);
-
+        
         // what operation is it?
         if (!strcmp(operation, MSG_JOIN)) // a new client requested to join
         {
@@ -367,14 +413,19 @@ int main(int argc, char *argv[])
         {
             answer(data);
         }
+        else if (!strcmp(operation, MSG_FERRARELLE))
+        {
+            // a new server is looking for older one
+            thisIsMyTerritory(data);
+        }
         
     }
     
-    close(serverFIFO);    
+    close(serverFIFO);
     /* remove the FIFO */
     unlink(SERVER_PATH);
-
-
+    
+    
     return 0;
 }
 
