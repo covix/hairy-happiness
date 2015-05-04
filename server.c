@@ -37,6 +37,17 @@
 #define ERR_NOTACCSF -1
 #define ERR_NOTACCAE -2
 
+#define KNRM  "\x1B[0m"
+#define KRED  "\x1B[31m"
+#define KGRN  "\x1B[32m"
+#define KYEL  "\x1B[33m"
+#define KBLU  "\x1B[34m"
+#define KMAG  "\x1B[35m"
+#define KCYN  "\x1B[36m"
+#define KWHT  "\x1B[37m"
+#define RESET "\033[0m"
+
+
 ssize_t writeLella(int index, char * text);
 char * toString ( const char * format, ... )
 {
@@ -138,7 +149,7 @@ ssize_t writeLella(int index, char * text)
     if(erro == -1)
     {
         // print info to server
-        printf("Player death: '%s'\n", players[index].name);
+        printf(KGRN"Player death: '%s'\n"RESET, players[index].name);
         
         // disable the user
         players[index].active = 0;
@@ -170,19 +181,19 @@ void answer(char * response)
         
         if (players[index].point == points_to_win) // player is the winner
         {
-            printf("The winner is %s with %d point\n", players[index].name, players[index].point);
+            printf(KBLU"The winner is %s with %d point\n"RESET, players[index].name, players[index].point);
             
             sendEndGameToAll(players[index]);
         }
         else // answer is right
         {
-            printf("Correct answer by %s (point:%d)\n", players[index].name, players[index].point);
+            printf(KBLU"Correct answer by %s (point:%d)\n"RESET, players[index].name, players[index].point);
             
             writeLella(index, toString("%s%s%d", MSG_CORRECT, DELIM, players[index].point));
 
             // create and send the question to everybody
             res = createQuestion(question);
-            printf("Generate other question: %s (%d)\n", question, res);
+            printf(KBLU"Generate other question: %s (%d)\n"RESET, question, res);
             sendQuestionToAll();
         }
     }
@@ -191,7 +202,7 @@ void answer(char * response)
         players[index].point--;
         
         
-        printf("Incorrect answer by %s (point:%d)\n", players[index].name, players[index].point);
+        printf(KBLU"Incorrect answer by %s (point:%d)\n" RESET, players[index].name, players[index].point);
         
         writeLella(index, toString("%s%s%d", MSG_INCORRECT, DELIM, players[index].point));
         writeLella(index, toString("%s%s%s", MSG_QUESTION, DELIM, question));
@@ -255,7 +266,7 @@ void joinPlayer(char * response)
         players[index] = pl;
         
         // print info to server
-        printf("Player join: '%s'(%d) with %d point\n", pl.name, index, pl.point);
+        printf(KGRN "Player join: '%s'(%d) with %d point\n" RESET, pl.name, index, pl.point);
 
         // inform the client it has been accepted
         writeLella(index, toString("%s%s%d%s%d", MSG_ACCEPTED, DELIM, index, DELIM, pl.point));
@@ -270,9 +281,9 @@ void joinPlayer(char * response)
     {
         // print info to server
         if(index == ERR_NOTACCSF)
-            printf("Player rejected: (server full): '%s'\n", pl.name);
+            printf(KGRN "Player rejected: (server full): '%s'\n" RESET, pl.name);
         else if(index == ERR_NOTACCAE)
-            printf("Player rejected: (name already exist): '%s'\n", pl.name);
+            printf(KGRN "Player rejected: (name already exist): '%s'\n" RESET, pl.name);
         
         // send info to client rejected
         write(pl.fifo,toString("%s%s%d", MSG_NOTACCEPTED, DELIM, index), MAX_BUF);
@@ -285,7 +296,7 @@ void leftPlayer(char * response)
     int index = atoi(strtok_r(NULL, DELIM, &response));
     
     // print info to server
-    printf("Player exit: '%s'\n", players[index].name);
+    printf(KGRN "Player exit: '%s'\n" RESET, players[index].name);
     
     // disable the user
     players[index].active = 0;
@@ -326,7 +337,7 @@ int main(int argc, char *argv[])
     // open the input FIFO with read and write permissions to avoid blocks
     int serverFIFO;
     if((serverFIFO = open(SERVER_PATH, O_RDWR)) != -1)
-        printf("Server is start...\nGenerate the first question: %s (%d)\n", question, res);
+        printf("Server is start...\n"KBLU "Generate the first question: %s (%d)\n" RESET, question, res);
     
     
     while (serverFIFO != -1)
