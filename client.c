@@ -14,8 +14,6 @@
 #include <pthread.h>
 #include <errno.h>
 
-
-// FIFO write operation are atomic only using at most 1024 bytes
 #define MAX_BUF 1024
 #define NAME_LEN 11
 #define SERVER_PATH "/tmp/hairy-happiness"
@@ -34,6 +32,7 @@
 
 #define ERR_NOTACCSF -1
 #define ERR_NOTACCAE -2
+#define ERR_SERVERDEATH 43213
 
 #define KNRM  "\x1B[0m"
 #define KRED  "\x1B[31m"
@@ -57,14 +56,22 @@
 #define H_PLAYERLIST 11
 #define H_ANSWER 11
 
-#define ERR_SERVERDEATH 43213
 
 
 pthread_mutex_t lock;
 
+int myIndex;
 char * name;
 int point;
 int points_to_win;
+
+int recvFIFO;
+int sendFIFO;
+
+
+
+
+
 
 
 char * toString ( const char * format, ... )
@@ -76,7 +83,6 @@ char * toString ( const char * format, ... )
     va_end (args);
     return strdup(buffer);
 }
-
 void printToCoordinates(int x, int y, char* color, const char * format, ...)
 {
     char buffer[MAX_BUF];
@@ -95,7 +101,6 @@ void printToCoordinates(int x, int y, char* color, const char * format, ...)
     
     pthread_mutex_unlock(&lock);
 }
-
 char* verifyMe(char *data)
 {
     if(!strcmp(data, name))
@@ -128,24 +133,20 @@ void printPlayerList(char *data)
         h++;
     } while ((str = strtok_r(list, "|", &list)) != NULL);
 }
-
 void printNews(char * buf)
 {
     for(int i=41;i<80;i++) printToCoordinates(i, H_NEWS, RESET, " ");
     printToCoordinates(60-(int)strlen(buf)/2, H_NEWS, RESET, buf);
 }
-
 void printNumb()
 {
     for(int i=41;i<80;i++) printToCoordinates(i, H_POINT, RESET," ");
     printToCoordinates(60-((int)strlen(toString("%d",point))/2), H_POINT, RESET,toString("%d",point));
 }
-
 void clearAnswer()
 {
     for(int i=0;i<40;i++) printToCoordinates(i, H_ANSWER, RESET," ");
 }
-
 void printQuestion(char *buf)
 {
     for(int i=0;i<40;i++) printToCoordinates(i, H_QUESTION, RESET," ");
@@ -156,18 +157,15 @@ void clearInfoQuestion()
 {
     for(int i=0;i<40;i++) printToCoordinates(i, H_INFOQUEST,RESET, " ");
 }
-
 void printInfoQuestion(char *buf, int color)
 {
     clearInfoQuestion();
     printToCoordinates(20-(int)strlen(buf)/2, H_INFOQUEST, (color == 0)?KGRN:KRED,buf);
 }
-
 void clearAll()
 {
     write(1,"\E[H\E[2J",7);
 }
-
 void printField()
 {
     clearAll();
@@ -193,86 +191,87 @@ void printField()
 }
 
 
+
+
 /*
     manage the user interaction with the game
 */
-void read_fifo(void* args)
+void read_fifo()
 {
-    int recvFIFO = *((int*) args);
-
     while(1)
     {
+        char buf[MAX_BUF];size_t len;
+        
         // read message
-        char buf[MAX_BUF];
-        size_t len = read(recvFIFO, buf, MAX_BUF);
-        buf[len] = '\0';
-        
-        
-        // extract the operation
-        char * data;
-        char * op = strtok_r(buf, DELIM, &data);
-        if (!strcmp(op, MSG_QUESTION))
+        if ((len = read(recvFIFO, buf, MAX_BUF)) > 0)
         {
-            printQuestion(strtok_r(NULL, DELIM, &data));
-            printPlayerList(strtok_r(NULL, DELIM, &data));
-        }
-        else if (!strcmp(op, MSG_CORRECT))
-        {
-            point = atoi(strtok_r(NULL, DELIM, &data));
-            printNumb();
-            printInfoQuestion("Your answer is correct", 0);
-        }
-        else if (!strcmp(op, MSG_INCORRECT))
-        {
-            point = atoi(strtok_r(NULL, DELIM, &data));
-            printNumb();
-            clearAnswer();
-            printInfoQuestion("Your answer is not correct", 1);
-        }
-        else if (!strcmp(op, MSG_JOIN))
-        {
-            char *nameJoined = verifyMe(strtok_r(NULL, DELIM, &data));
-            int pointJoined = atoi(strtok_r(NULL, DELIM, &data));
+            buf[len] = '\0';
             
-            printNews(toString("%s join with %d points", nameJoined, pointJoined));
-            printPlayerList(strtok_r(NULL, DELIM, &data));
+            // extract the operation
+            char * data;
+            char * op = strtok_r(buf, DELIM, &data);
+            if (!strcmp(op, MSG_QUESTION))
+            {
+                printQuestion(strtok_r(NULL, DELIM, &data));
+                printPlayerList(strtok_r(NULL, DELIM, &data));
+            }
+            else if (!strcmp(op, MSG_CORRECT))
+            {
+                point = atoi(strtok_r(NULL, DELIM, &data));
+                printNumb();
+                printInfoQuestion("Your answer is correct", 0);
+            }
+            else if (!strcmp(op, MSG_INCORRECT))
+            {
+                point = atoi(strtok_r(NULL, DELIM, &data));
+                printNumb();
+                clearAnswer();
+                printInfoQuestion("Your answer is not correct", 1);
+            }
+            else if (!strcmp(op, MSG_JOIN))
+            {
+                char *nameJoined = verifyMe(strtok_r(NULL, DELIM, &data));
+                int pointJoined = atoi(strtok_r(NULL, DELIM, &data));
+                
+                printNews(toString("%s join with %d points", nameJoined, pointJoined));
+                printPlayerList(strtok_r(NULL, DELIM, &data));
+            }
+            else if (!strcmp(op, MSG_END))
+            {
+                char *nameWinner = verifyMe(strtok_r(NULL, DELIM, &data));
+                int pointWinner = atoi(strtok_r(NULL, DELIM, &data));
+                
+                printNews(toString("%s win! with %d points", nameWinner, pointWinner));
+                printPlayerList(strtok_r(NULL, DELIM, &data));
+            }
+            else if (!strcmp(op, MSG_QUIT))
+            {
+                printNews(toString("%s left", verifyMe(strtok_r(NULL, DELIM, &data))));
+                printPlayerList(strtok_r(NULL, DELIM, &data));
+            }
+            else if (!strcmp(op, MSG_REFH))
+            {
+                printPlayerList(strtok_r(NULL, DELIM, &data));
+            }
+            //TODO server close
         }
-        else if (!strcmp(op, MSG_END))
-        {
-            char *nameWinner = verifyMe(strtok_r(NULL, DELIM, &data));
-            int pointWinner = atoi(strtok_r(NULL, DELIM, &data));
-            
-            printNews(toString("%s win! with %d points", nameWinner, pointWinner));
-            printPlayerList(strtok_r(NULL, DELIM, &data));
-        }
-        else if (!strcmp(op, MSG_QUIT))
-        {
-            printNews(toString("%s left", verifyMe(strtok_r(NULL, DELIM, &data))));
-            printPlayerList(strtok_r(NULL, DELIM, &data));
-        }
-        else if (!strcmp(op, MSG_REFH))
-        {
-            printPlayerList(strtok_r(NULL, DELIM, &data));
-        }
-        //TODO server close
     }
 }
 
-ssize_t writeLella(int sendFIFO, char * text)
+ssize_t writeToServer(char * text)
 {
     ssize_t erro = write(sendFIFO, text, MAX_BUF);
     if(erro == -1)
     {
-        // print info to server
         clearAll();
-        printf(KGRN"Server death\n"RESET);
+        printf(KGRN"Server death\n"RESET);// print info to server
         erro = ERR_SERVERDEATH;
     }
     
     return erro;
 }
 
-void read_console(int sendFIFO, int index)
+void read_console()
 {
     while (1)
     {
@@ -286,7 +285,7 @@ void read_console(int sendFIFO, int index)
         
         if (!strcmp(input, "quit\n"))
         {
-            write(sendFIFO, toString("%s%s%d", MSG_QUIT, DELIM, index), MAX_BUF);
+            write(sendFIFO, toString("%s%s%d", MSG_QUIT, DELIM, myIndex), MAX_BUF);
             clearAll();
             printf(KGRN"You exit\n"RESET);
             break;
@@ -304,7 +303,7 @@ void read_console(int sendFIFO, int index)
             }
             else // send the user answer
             {
-                if(writeLella(sendFIFO, toString("%s%s%d%s%ld", MSG_ANSWER, DELIM, index, DELIM, answer)) == ERR_SERVERDEATH)
+                if(writeToServer(toString("%s%s%d%s%ld", MSG_ANSWER, DELIM, myIndex, DELIM, answer)) == ERR_SERVERDEATH)
                     break;
             }
         }
@@ -312,70 +311,81 @@ void read_console(int sendFIFO, int index)
 }
 
 
-
 int main()
 {
+    signal(SIGPIPE, SIG_IGN);
+    pthread_mutex_init(&lock, NULL);
+    
+    
     // get user nickname
     name = calloc(NAME_LEN, sizeof(*name));
     printf("Enter your nickname: ");
     scanf("%10s", name);
     
-    signal(SIGPIPE, SIG_IGN);
-    pthread_mutex_init(&lock, NULL);
+    
+    // generate fifo name using timestamp  FIXME: timestamp has seconds precision
+    char *client_path = toString("/tmp/%u", (unsigned)time(NULL));
+    // create the FIFO
+    mkfifo(client_path, 0666);
+    
     
     // open the output FIFO with write permissions and wait for the server to exist
-    int sendFIFO = open(SERVER_PATH, O_WRONLY);
-    
-    char client_path[30];
-    // generate fifo name using timestamp  FIXME: timestamp has seconds precision
-    sprintf(client_path, "/tmp/%u", (unsigned)time(NULL));
-    // create the FIFO
-    mkfifo(client_path, 0666);    // open the input FIFO with read permissions (blocking)
-    int recvFIFO = open(client_path, O_RDWR);
-    
+    if((sendFIFO = open(SERVER_PATH, O_WRONLY | O_NONBLOCK)) == -1)
+    {
+        clearAll();
+        printf(KGRN"Server not exist\n"RESET);
+        return -1;
+    }
     
     //write join request
     write(sendFIFO, toString("%s%s%s%s%s", MSG_JOIN, DELIM, client_path, DELIM, name), MAX_BUF);
+    
+    
+    // open the input FIFO with read permissions (blocking)
+    recvFIFO = open(client_path, O_RDONLY);
+    
     // read the answer to the join request
-    char buf[MAX_BUF];
-    size_t len = read(recvFIFO, buf, MAX_BUF);
-    buf[len] = '\0';
-    
-    
-    char * op = strtok(buf, DELIM);
-    if (!strcmp(op, MSG_NOTACCEPTED))
+    char buf[MAX_BUF]; long len;
+    if((len = read(recvFIFO, buf, MAX_BUF)) > 0)
     {
-        int err = atoi(strtok(NULL, DELIM));
-        if(err == ERR_NOTACCAE)
-            printf("The server didn't accepted you, your name already exist\n");
-        else if (err == ERR_NOTACCSF)
-            printf("The server is full\n");
+        buf[len] = '\0';
+        
+        
+        char * op = strtok(buf, DELIM);
+        if (!strcmp(op, MSG_NOTACCEPTED))
+        {
+            int err = atoi(strtok(NULL, DELIM));
+            if(err == ERR_NOTACCAE)
+                printf("The server didn't accepted you, your name already exist\n");
+            else if (err == ERR_NOTACCSF)
+                printf("The server is full\n");
+        }
+        else if (!strcmp(op, MSG_ACCEPTED))
+        {
+            printf("Joined to server\n");
+            
+            // get the index of this client on the server
+            myIndex = atoi(strtok(NULL, DELIM));
+            point = atoi(strtok(NULL, DELIM));
+            points_to_win = atoi(strtok(NULL, DELIM));
+            
+            
+            printField();
+            
+            
+            // create thread for listening to the server
+            pthread_t thread_id;
+            pthread_create(&thread_id, NULL, (void*)read_fifo, NULL);
+            
+            // keep sending user answer
+            read_console();
+        }
     }
-    else if (!strcmp(op, MSG_ACCEPTED))
-    {
-        printf("Joined to server\n");
-        
-        // get the index of this client on the server
-        int index = atoi(strtok(NULL, DELIM));
-        point = atoi(strtok(NULL, DELIM));
-        points_to_win = atoi(strtok(NULL, DELIM));
-        
-        
-        printField();
-        
-        
-        // create thread for listening to the server
-        pthread_t thread_id;
-        pthread_create(&thread_id, NULL, (void*)read_fifo, (void*)&recvFIFO);
-
-        // keep sending user answer
-        read_console(sendFIFO, index);
-    }
-
     
+    close(recvFIFO);
     unlink(client_path);
     pthread_mutex_destroy(&lock);
-
-
+    
+    
     return 0;
 }
