@@ -18,6 +18,8 @@
 #define NAME_LEN 11
 #define SERVER_PATH "/tmp/hairy-happiness"
 #define DELIM ";"
+
+// message const for communication
 #define MSG_QUESTION "q"
 #define MSG_ACCEPTED "accepted"
 #define MSG_NOTACCEPTED "nope"
@@ -34,6 +36,7 @@
 #define ERR_NOTACCAE -2
 #define ERR_SERVERDEATH 43213
 
+// define term colors
 #define KNRM  "\x1B[0m"
 #define KRED  "\x1B[31m"
 #define KGRN  "\x1B[32m"
@@ -69,11 +72,9 @@ int recvFIFO;
 int sendFIFO;
 
 
-
-
-
-
-
+/*
+    transform the 
+*/
 char * toString ( const char * format, ... )
 {
     char buffer[MAX_BUF];
@@ -83,6 +84,8 @@ char * toString ( const char * format, ... )
     va_end (args);
     return strdup(buffer);
 }
+
+
 void printToCoordinates(int x, int y, char* color, const char * format, ...)
 {
     char buffer[MAX_BUF];
@@ -101,6 +104,11 @@ void printToCoordinates(int x, int y, char* color, const char * format, ...)
     
     pthread_mutex_unlock(&lock);
 }
+
+
+/*
+    Set data to 'you' if current player's name is passed
+*/
 char* verifyMe(char *data)
 {
     if(!strcmp(data, name))
@@ -108,7 +116,6 @@ char* verifyMe(char *data)
     
     return data;
 }
-
 
 
 void printPlayerList(char *data)

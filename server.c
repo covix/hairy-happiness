@@ -24,6 +24,7 @@
 #define Q_FORMAT "%d + %d ="
 #define DELIM ";"
 
+// message const for communication
 #define MSG_QUESTION "q"
 #define MSG_ACCEPTED "accepted"
 #define MSG_NOTACCEPTED "nope"
@@ -41,6 +42,8 @@
 #define ERR_NOTACCSF -1
 #define ERR_NOTACCAE -2
 
+
+// define term colors
 #define KNRM  "\x1B[0m"
 #define KRED  "\x1B[31m"
 #define KGRN  "\x1B[32m"
@@ -64,7 +67,6 @@ char * toString ( const char * format, ... )
 }
 
 
-
 /*
     struct player used to define user's properties
 */
@@ -77,16 +79,20 @@ typedef struct player {
 
 // array of the players
 player *players;
+
 // max players acceptable
 int num_players;
+
 // point to win
 int points_to_win;
 
-
 // question message
 char* question;
+
 // result of the question
 int res;
+
+
 /*
     generate new question and result
 */
@@ -101,6 +107,9 @@ int createQuestion(char * q)
 
 //ciao:2|paos:3|desni:3|
 
+/*
+    return the string representation of all the players
+*/
 char* encodeListPlayers()
 {
     char list[MAX_BUF];
@@ -110,7 +119,7 @@ char* encodeListPlayers()
         if(players[i].active)
             strcat(list, toString("%s:%d|", players[i].name, players[i].point));
     
-    
+    // return a copy of the string
     return strdup(list);
 }
 
@@ -125,6 +134,7 @@ void sendQuestionToAll()
             writeLella(i, toString("%s%s%s%s%s", MSG_QUESTION, DELIM, question, DELIM, encodeListPlayers()));
 }
 
+
 /* 
     send end information to all the client
 */
@@ -134,6 +144,7 @@ void sendEndGameToAll(player winner)
         if (players[i].active)
             writeLella(i, toString("%s%s%s%s%d%s%s", MSG_END, DELIM, winner.name, DELIM, winner.point, DELIM, encodeListPlayers()));
 }
+
 
 /* 
     notify clients that one user left
@@ -145,6 +156,10 @@ void sendQuitToAll(player pl)
             writeLella(i, toString("%s%s%s%s%s", MSG_QUIT, DELIM, pl.name, DELIM, encodeListPlayers()));
 }
 
+
+/*
+    keep the classify updated
+*/
 void sendRefreshScoreToAll()
 {
     for (int i = 0; i < num_players; i++)
@@ -163,6 +178,10 @@ void sendJoinToAll(player pl)
             writeLella(i, toString("%s%s%s%s%d%s%s", MSG_JOIN, DELIM, pl.name, DELIM, pl.point, DELIM, encodeListPlayers()));
 }
 
+
+/*
+    write 'text' to the player with index 'index' and check if it is still active; if it isn't, notify all the client about his death
+*/
 ssize_t writeLella(int index, char * text)
 {
     ssize_t erro = write(players[index].fifo, text, MAX_BUF);
@@ -182,20 +201,24 @@ ssize_t writeLella(int index, char * text)
 }
 
 
+/*
+    Respect the old one! I've been the server since tests! I could be the one who forked you!
+*/
 void thisIsMyTerritory(char * response)
 {
         player pl;
-        // open output FIFO to the client
+        // open output FIFO to the fake server
         pl.fifo = open(strtok_r(NULL, DELIM, &response), O_WRONLY);
-    
+        
+        // write to the just opened server that I already exist   
         write(pl.fifo, toString("%s%s", MSG_ROCCHETTA, DELIM), MAX_BUF);
         close(pl.fifo);
 }
 
 
-
 /*
- is the answer right?
+    is the answer right? well, if so, notify all the notifiable things to all the client
+    even if it isn't
  */
 void answer(char * response)
 {
@@ -221,7 +244,6 @@ void answer(char * response)
             
             writeLella(index, toString("%s%s%d", MSG_CORRECT, DELIM, players[index].point));
 
-            
             // create and send the question to everybody
             res = createQuestion(question);
             printf(KBLU"Generate other question: %s (%d)\n"RESET, question, res);
@@ -238,10 +260,12 @@ void answer(char * response)
         writeLella(index, toString("%s%s%d", MSG_INCORRECT, DELIM, players[index].point));
         sendRefreshScoreToAll();
     }
-    
-    
 }
 
+
+/*
+    Check if the clients are still alive
+*/
 void refreshAlive()
 {
     for (int i = 0; i < num_players; i++)
@@ -249,8 +273,9 @@ void refreshAlive()
             writeLella(i, MSG_FERRARELLE);
 }
 
+
 /*
- find the first empty component in the array of the players
+    find the first empty component in the array of the players
  */
 int indexOfEmptyAndNoNameAlreadyExist(char *name)
 {
@@ -266,8 +291,9 @@ int indexOfEmptyAndNoNameAlreadyExist(char *name)
     return ERR_NOTACCSF;
 }
 
+
 /*
- return the number of active player
+    return the number of active players
  */
 int countPlayer()
 {
@@ -278,6 +304,7 @@ int countPlayer()
     
     return count;
 }
+
 
 /*
     manage join request by clients
@@ -330,6 +357,10 @@ void joinPlayer(char * response)
     }
 }
 
+
+/*
+    a player left the game, notify everybody math is not for him
+*/
 void leftPlayer(char * response)
 {
     int index = atoi(strtok_r(NULL, DELIM, &response));
@@ -345,6 +376,10 @@ void leftPlayer(char * response)
     sendQuitToAll(players[index]);
 }
 
+
+/*
+    On startup check if there's another server running
+*/
 int otherServerIsUp()
 {
     char server_tmp_path[30];
@@ -381,6 +416,10 @@ int otherServerIsUp()
     return i;
 }
 
+
+/* 
+    Entry point of the program
+*/
 int main(int argc, char *argv[])
 {
     signal(SIGPIPE, SIG_IGN);
@@ -424,16 +463,19 @@ int main(int argc, char *argv[])
         char * operation = strtok_r(buf, DELIM, &data);
 
         // what operation is it?
-        if (!strcmp(operation, MSG_JOIN)) // a new client requested to join
+        if (!strcmp(operation, MSG_JOIN)) 
         {
+            // a new client requested to join
             joinPlayer(data);
         }
-        else if (!strcmp(operation, MSG_QUIT)) // a client left
+        else if (!strcmp(operation, MSG_QUIT)) 
         {
+            // a client left
             leftPlayer(data);
         }
-        else if (!strcmp(operation, MSG_ANSWER)) // received answer
+        else if (!strcmp(operation, MSG_ANSWER))
         {
+            // received answer
             answer(data);
         }
         else if (!strcmp(operation, MSG_FERRARELLE))
@@ -447,7 +489,6 @@ int main(int argc, char *argv[])
     close(serverFIFO);    
     /* remove the FIFO */
     unlink(SERVER_PATH);
-
 
     return 0;
 }
