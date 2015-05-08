@@ -1,25 +1,29 @@
-/*
-    client.h
+/* 
+    server.h
 */
 
 #include <fcntl.h>
-#include <stdarg.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdlib.h>
-#include <time.h>
+#include <sys/stat.h>
 #include <string.h>
-#include <pthread.h>
+#include <unistd.h>
+#include <time.h>
+#include <getopt.h>
 #include <errno.h>
+#include <poll.h>
 
-
-// FIFO write operation are atomic only using at most 1024 bytes
 #define MAX_BUF 1024
 #define NAME_LEN 11
 #define SERVER_PATH "/tmp/hairy-happiness"
+#define MAX_PLAYERS 10
+#define MIN_PLAYERS 0
+#define MAX_POINTS 100
+#define MIN_POINTS 10
+#define Q_FORMAT "%d + %d ="
 #define DELIM ";"
+
 #define MSG_QUESTION "q"
 #define MSG_ACCEPTED "accepted"
 #define MSG_NOTACCEPTED "nope"
@@ -30,6 +34,8 @@
 #define MSG_END "end"
 #define MSG_QUIT "quit"
 #define MSG_REFH "refresh"
+#define MSG_FERRARELLE "server?"
+#define MSG_ROCCHETTA "alive"
 
 
 #define ERR_NOTACCSF -1
@@ -45,28 +51,8 @@
 #define KWHT  "\x1B[37m"
 #define RESET "\033[0m"
 
-#define H_POINT 3
-#define H_NAME 3
-#define H_TLQUESTION 8
-#define H_INFOQUEST 12
-#define H_TLNEWS 6
-#define H_QUESTION 10
-#define H_NEWS 7
-#define H_TLPLAYERLIST 9
-#define H_SUBTLPLAYLIST 10
-#define H_PLAYERLIST 11
-#define H_ANSWER 11
 
-#define ERR_SERVERDEATH 43213
-
-
-pthread_mutex_t lock;
-
-char * name;
-int point;
-int points_to_win;
-
-
+ssize_t writeLella(int index, char * text);
 char * toString ( const char * format, ... )
 {
     char buffer[MAX_BUF];
@@ -77,305 +63,458 @@ char * toString ( const char * format, ... )
     return strdup(buffer);
 }
 
-void printToCoordinates(int x, int y, char* color, const char * format, ...)
+
+
+/*
+    struct player used to define user's properties
+*/
+typedef struct player {
+	int fifo;
+	int point;
+    int active;
+	char *name;
+} player;
+
+// array of the players
+player *players;
+// max players acceptable
+int num_players;
+// point to win
+int points_to_win;
+
+
+// question message
+char* question;
+// result of the question
+int res;
+/*
+    generate new question and result
+*/
+int createQuestion(char * q)
 {
-    char buffer[MAX_BUF];
-    va_list args;
-    va_start (args, format);
-    vsprintf (buffer,format, args);
-    va_end (args);
-    
-    pthread_mutex_lock(&lock);
-    
-    strcpy(buffer, toString("%s\033[%d;%dH%s%s",color, y, x, strdup(buffer), RESET));
-    write(2, buffer, strlen(buffer));
-    
-    strcpy(buffer, toString("\033[%d;19H",H_ANSWER));
-    write(2, buffer, strlen(buffer));
-    
-    pthread_mutex_unlock(&lock);
+    int n1 = rand() % 100;
+    int n2 = rand() % 100;
+    sprintf(q, Q_FORMAT, n1, n2);
+
+    return n1 + n2;
 }
 
-char* verifyMe(char *data)
+//ciao:2|paos:3|desni:3|
+
+char* encodeListPlayers()
 {
-    if(!strcmp(data, name))
-        strcpy(data, "you");
+    char list[MAX_BUF];
+    strcpy(list, "");
+
+    for(int i=0;i<num_players;i++)
+        if(players[i].active)
+            strcat(list, toString("%s:%d|", players[i].name, players[i].point));
     
-    return data;
+    
+    return strdup(list);
 }
 
 
-
-void printPlayerList(char *data)
+/* 
+    send the question to all the client
+*/
+void sendQuestionToAll()
 {
-    for (int i=41;i<80;i++)
-        for(int j=H_PLAYERLIST;j<20;j++)
-            printToCoordinates(i, j, RESET, " ");
-    
-    char * list;
-    char * str = strtok_r(data, "|", &list);
-    if(str == NULL)
-        return;
-    
-    int h = H_PLAYERLIST;
-    do
-    {
-        char*namePl = verifyMe(strtok(str, ":"));
-        char*pointPl = strtok(NULL, ":");
-        printToCoordinates(55-(int)strlen(namePl)/2, h, RESET, namePl);
-        printToCoordinates(65-(int)strlen(pointPl)/2, h, RESET, pointPl);
-        
-        h++;
-    } while ((str = strtok_r(list, "|", &list)) != NULL);
+    for (int i = 0; i < num_players; i++)
+        if (players[i].active)
+            writeLella(i, toString("%s%s%s%s%s", MSG_QUESTION, DELIM, question, DELIM, encodeListPlayers()));
 }
 
-void printNews(char * buf)
+/* 
+    send end information to all the client
+*/
+void sendEndGameToAll(player winner)
 {
-    for(int i=41;i<80;i++) printToCoordinates(i, H_NEWS, RESET, " ");
-    printToCoordinates(60-(int)strlen(buf)/2, H_NEWS, RESET, buf);
+    for (int i = 0; i < num_players; i++)
+        if (players[i].active)
+            writeLella(i, toString("%s%s%s%s%d%s%s", MSG_END, DELIM, winner.name, DELIM, winner.point, DELIM, encodeListPlayers()));
 }
 
-void printNumb()
+/* 
+    notify clients that one user left
+*/
+void sendQuitToAll(player pl)
 {
-    for(int i=41;i<80;i++) printToCoordinates(i, H_POINT, RESET," ");
-    printToCoordinates(60-((int)strlen(toString("%d",point))/2), H_POINT, RESET,toString("%d",point));
+    for (int i = 0; i < num_players; i++)
+        if (players[i].active)
+            writeLella(i, toString("%s%s%s%s%s", MSG_QUIT, DELIM, pl.name, DELIM, encodeListPlayers()));
 }
 
-void clearAnswer()
+void sendRefreshScoreToAll()
 {
-    for(int i=0;i<40;i++) printToCoordinates(i, H_ANSWER, RESET," ");
-}
-
-void printQuestion(char *buf)
-{
-    for(int i=0;i<40;i++) printToCoordinates(i, H_QUESTION, RESET," ");
-    printToCoordinates(20-(int)strlen(buf)/2, H_QUESTION, RESET,buf);
-    clearAnswer();
-}
-void clearInfoQuestion()
-{
-    for(int i=0;i<40;i++) printToCoordinates(i, H_INFOQUEST,RESET, " ");
-}
-
-void printInfoQuestion(char *buf, int color)
-{
-    clearInfoQuestion();
-    printToCoordinates(20-(int)strlen(buf)/2, H_INFOQUEST, (color == 0)?KGRN:KRED,buf);
-}
-
-void clearAll()
-{
-    write(1,"\E[H\E[2J",7);
-}
-
-void printField()
-{
-    clearAll();
-    
-    printToCoordinates(40-(strlen("THE BEST GAME OF EVA")/2), 1, KBLU, "THE BEST GAME OF EVA");
-    
-    printToCoordinates(20-(strlen("Your name")/2), H_NAME-1, KGRN, "Your name");
-    printToCoordinates(20-((int)strlen(name)/2), H_NAME, RESET, name);
-    
-    printToCoordinates(60-((int)strlen(toString("Point (to win: %d)",points_to_win))/2), H_POINT-1, KGRN, "Point (to win: %d)",points_to_win);
-    printNumb();
-    
-    printToCoordinates(20-(strlen("Question")/2), H_TLQUESTION, KYEL, "Question");
-    printToCoordinates(60-(strlen("News")/2), H_TLNEWS, KYEL, "News");
-    printToCoordinates(60-(strlen("Players list")/2), H_TLPLAYERLIST, KYEL, "Players list");
-    printToCoordinates(55-strlen("Name")/2, H_SUBTLPLAYLIST, KRED, "Name");
-    printToCoordinates(65-strlen("Point")/2, H_SUBTLPLAYLIST, KRED, "Point");
-    
-    
-    for(int i=0;i<19;i++)
-        printToCoordinates(40, 5+i, KBLU,"|");
-    
+    for (int i = 0; i < num_players; i++)
+        if (players[i].active)
+            writeLella(i, toString("%s%s%s", MSG_REFH, DELIM, encodeListPlayers()));
 }
 
 
 /*
-    manage the user interaction with the game
-*/
-void read_fifo(void* args)
+ notify clients that one user join
+ */
+void sendJoinToAll(player pl)
 {
-    int recvFIFO = *((int*) args);
-
-    while(1)
-    {
-        // read message
-        char buf[MAX_BUF];
-        size_t len = read(recvFIFO, buf, MAX_BUF);
-        buf[len] = '\0';
-        
-        
-        // extract the operation
-        char * data;
-        char * op = strtok_r(buf, DELIM, &data);
-        if (!strcmp(op, MSG_QUESTION))
-        {
-            printQuestion(strtok_r(NULL, DELIM, &data));
-            printPlayerList(strtok_r(NULL, DELIM, &data));
-        }
-        else if (!strcmp(op, MSG_CORRECT))
-        {
-            point = atoi(strtok_r(NULL, DELIM, &data));
-            printNumb();
-            printInfoQuestion("Your answer is correct", 0);
-        }
-        else if (!strcmp(op, MSG_INCORRECT))
-        {
-            point = atoi(strtok_r(NULL, DELIM, &data));
-            printNumb();
-            clearAnswer();
-            printInfoQuestion("Your answer is not correct", 1);
-        }
-        else if (!strcmp(op, MSG_JOIN))
-        {
-            char *nameJoined = verifyMe(strtok_r(NULL, DELIM, &data));
-            int pointJoined = atoi(strtok_r(NULL, DELIM, &data));
-            
-            printNews(toString("%s join with %d points", nameJoined, pointJoined));
-            printPlayerList(strtok_r(NULL, DELIM, &data));
-        }
-        else if (!strcmp(op, MSG_END))
-        {
-            char *nameWinner = verifyMe(strtok_r(NULL, DELIM, &data));
-            int pointWinner = atoi(strtok_r(NULL, DELIM, &data));
-            
-            printNews(toString("%s win! with %d points", nameWinner, pointWinner));
-            printPlayerList(strtok_r(NULL, DELIM, &data));
-        }
-        else if (!strcmp(op, MSG_QUIT))
-        {
-            printNews(toString("%s left", verifyMe(strtok_r(NULL, DELIM, &data))));
-            printPlayerList(strtok_r(NULL, DELIM, &data));
-        }
-        else if (!strcmp(op, MSG_REFH))
-        {
-            printPlayerList(strtok_r(NULL, DELIM, &data));
-        }
-        //TODO server close
-    }
+    for (int i = 0; i < num_players; i++)
+        if (players[i].active)
+            writeLella(i, toString("%s%s%s%s%d%s%s", MSG_JOIN, DELIM, pl.name, DELIM, pl.point, DELIM, encodeListPlayers()));
 }
 
-ssize_t writeLella(int sendFIFO, char * text)
+ssize_t writeLella(int index, char * text)
 {
-    ssize_t erro = write(sendFIFO, text, MAX_BUF);
+    ssize_t erro = write(players[index].fifo, text, MAX_BUF);
     if(erro == -1)
     {
         // print info to server
-        clearAll();
-        printf(KGRN"Server death\n"RESET);
-        erro = ERR_SERVERDEATH;
+        printf(KGRN"Player death: '%s'\n"RESET, players[index].name);
+        
+        // disable the user
+        players[index].active = 0;
+        
+        // inform to all of a user's death
+        sendQuitToAll(players[index]);
     }
     
     return erro;
 }
 
-void read_console(int sendFIFO, int index)
-{
-    while (1)
-    {
-        // wait for the user to answer
-        char input[MAX_BUF];
-        size_t len = read(0, input, MAX_BUF);
-        input[len] = '\0';
-        
-        clearInfoQuestion();
-        
-        
-        if (!strcmp(input, "quit\n"))
-        {
-            write(sendFIFO, toString("%s%s%d", MSG_QUIT, DELIM, index), MAX_BUF);
-            clearAll();
-            printf(KGRN"You exit\n"RESET);
-            break;
-        }
-        else
-        {
-            errno = 0;
-            // convert the number
-            long answer = strtol(input, NULL, 10);
 
-            if (errno != 0 && answer == 0)// conversion error
-            {
-                printInfoQuestion("Insert a number please", 1);
-                clearAnswer();
-            }
-            else // send the user answer
-            {
-                if(writeLella(sendFIFO, toString("%s%s%d%s%ld", MSG_ANSWER, DELIM, index, DELIM, answer)) == ERR_SERVERDEATH)
-                    break;
-            }
-        }
-    }
+void thisIsMyTerritory(char * response)
+{
+        player pl;
+        // open output FIFO to the client
+        pl.fifo = open(strtok_r(NULL, DELIM, &response), O_WRONLY);
+    
+        write(pl.fifo, toString("%s%s", MSG_ROCCHETTA, DELIM), MAX_BUF);
+        close(pl.fifo);
 }
 
 
 
-int main()
+/*
+ is the answer right?
+ */
+void answer(char * response)
 {
-    // get user nickname
-    name = calloc(NAME_LEN, sizeof(*name));
-    printf("Enter your nickname: ");
-    scanf("%10s", name);
+    // obtain player
+    int index = atoi(strtok_r(NULL, DELIM, &response));
+    // get the answer
+    int answer = atoi(strtok_r(NULL, DELIM, &response));
     
-    signal(SIGPIPE, SIG_IGN);
-    pthread_mutex_init(&lock, NULL);
     
+    if (answer == res) // answer is correct
+    {
+        players[index].point++;
+        
+        if (players[index].point == points_to_win) // player is the winner
+        {
+            printf(KBLU"The winner is %s with %d point\n"RESET, players[index].name, players[index].point);
+            
+            sendEndGameToAll(players[index]);
+        }
+        else // answer is right
+        {
+            printf(KBLU"Correct answer by %s (point:%d)\n"RESET, players[index].name, players[index].point);
+            
+            writeLella(index, toString("%s%s%d", MSG_CORRECT, DELIM, players[index].point));
+
+            
+            // create and send the question to everybody
+            res = createQuestion(question);
+            printf(KBLU"Generate other question: %s (%d)\n"RESET, question, res);
+            sendQuestionToAll();
+        }
+    }
+    else // answer is not correct
+    {
+        players[index].point--;
+        
+        
+        printf(KBLU"Incorrect answer by %s (point:%d)\n" RESET, players[index].name, players[index].point);
+        
+        writeLella(index, toString("%s%s%d", MSG_INCORRECT, DELIM, players[index].point));
+        sendRefreshScoreToAll();
+    }
+    
+    
+}
+
+void refreshAlive()
+{
+    for (int i = 0; i < num_players; i++)
+        if (players[i].active)
+            writeLella(i, MSG_FERRARELLE);
+}
+
+/*
+ find the first empty component in the array of the players
+ */
+int indexOfEmptyAndNoNameAlreadyExist(char *name)
+{
+    for (int i = 0; i < num_players; i++)
+        if (players[i].active)
+            if (!strcmp(players[i].name, name))
+                return ERR_NOTACCAE;
+    
+    for (int i = 0; i < num_players; ++i)
+        if (!players[i].active)
+            return i;
+    
+    return ERR_NOTACCSF;
+}
+
+/*
+ return the number of active player
+ */
+int countPlayer()
+{
+    int count = 0;
+    for (int i = 0; i < num_players; ++i)
+        if (players[i].active)
+            count++;
+    
+    return count;
+}
+
+/*
+    manage join request by clients
+*/
+void joinPlayer(char * response)
+{
+    player pl;
+    // open output FIFO to the client
+    pl.fifo = open(strtok_r(NULL, DELIM, &response), O_WRONLY);
+    // get the nickname of the new player
+    pl.name = strdup(strtok_r(NULL, DELIM, &response));
+    // calculate the point for the new client
+    pl.point = num_players - countPlayer() - 1;
+    // active player
+    pl.active = 1;
+
+    refreshAlive();
+    int index = indexOfEmptyAndNoNameAlreadyExist(pl.name);
+
+    if (index > -1) // the player is accepted
+    {
+        // add the client to the player list
+        players[index] = pl;
+        
+        // print info to server
+        printf(KGRN "Player join: '%s'(%d) with %d point\n" RESET, pl.name, index, pl.point);
+
+        // inform the client it has been accepted
+        writeLella(index, toString("%s%s%d%s%d%s%d", MSG_ACCEPTED, DELIM, index, DELIM, pl.point, DELIM, points_to_win));
+
+        // send the question to the client
+        writeLella(index, toString("%s%s%s%s%s", MSG_QUESTION, DELIM, question, DELIM, encodeListPlayers()));
+        
+        // send to all join new player
+        sendJoinToAll(players[index]);
+    }
+    else // request is rejected
+    {
+        // print info to server
+        if(index == ERR_NOTACCSF)
+            printf(KGRN "Player rejected: (server full): '%s'\n" RESET, pl.name);
+        else if(index == ERR_NOTACCAE)
+        {
+            printf(KGRN "Player rejected: (name already exist): '%s'\n" RESET, pl.name);
+        }
+        
+        // send info to client rejected
+        write(pl.fifo,toString("%s%s%d", MSG_NOTACCEPTED, DELIM, index), MAX_BUF);
+        close(pl.fifo);
+    }
+}
+
+void leftPlayer(char * response)
+{
+    int index = atoi(strtok_r(NULL, DELIM, &response));
+    
+    // print info to server
+    printf(KGRN "Player exit: '%s'\n" RESET, players[index].name);
+    
+    // disable the user
+    players[index].active = 0;
+    close(players[index].fifo);
+    
+    // inform to all of a user's left
+    sendQuitToAll(players[index]);
+}
+
+int otherServerIsUp()
+{
+    char server_tmp_path[30];
+    // generate fifo name using timestamp
+    sprintf(server_tmp_path, "/tmp/%u", (unsigned)time(NULL));
+    // create the FIFOs
+    mkfifo(server_tmp_path, 0666);    // open the input FIFO with read permissions (blocking)
+    int recvFIFO = open(server_tmp_path, O_RDWR);
+
     // open the output FIFO with write permissions and wait for the server to exist
-    int sendFIFO = open(SERVER_PATH, O_WRONLY);
-    
-    char client_path[30];
-    // generate fifo name using timestamp  FIXME: timestamp has seconds precision
-    sprintf(client_path, "/tmp/%u", (unsigned)time(NULL));
-    // create the FIFO
-    mkfifo(client_path, 0666);    // open the input FIFO with read permissions (blocking)
-    int recvFIFO = open(client_path, O_RDWR);
-    
-    
-    //write join request
-    write(sendFIFO, toString("%s%s%s%s%s", MSG_JOIN, DELIM, client_path, DELIM, name), MAX_BUF);
-    // read the answer to the join request
-    char buf[MAX_BUF];
-    size_t len = read(recvFIFO, buf, MAX_BUF);
-    buf[len] = '\0';
-    
-    
-    char * op = strtok(buf, DELIM);
-    if (!strcmp(op, MSG_NOTACCEPTED))
-    {
-        int err = atoi(strtok(NULL, DELIM));
-        if(err == ERR_NOTACCAE)
-            printf("The server didn't accepted you, your name already exist\n");
-        else if (err == ERR_NOTACCSF)
-            printf("The server is full\n");
-    }
-    else if (!strcmp(op, MSG_ACCEPTED))
-    {
-        printf("Joined to server\n");
-        
-        // get the index of this client on the server
-        int index = atoi(strtok(NULL, DELIM));
-        point = atoi(strtok(NULL, DELIM));
-        points_to_win = atoi(strtok(NULL, DELIM));
-        
-        
-        printField();
-        
-        
-        // create thread for listening to the server
-        pthread_t thread_id;
-        pthread_create(&thread_id, NULL, (void*)read_fifo, (void*)&recvFIFO);
+    int sendFIFO = open(SERVER_PATH, O_RDWR);
 
-        // keep sending user answer
-        read_console(sendFIFO, index);
+    // look for server
+    write(sendFIFO, toString("%s%s%s", MSG_FERRARELLE, DELIM, server_tmp_path), MAX_BUF);
+
+    struct pollfd fds[1];
+    int timeout_msecs = 2 * 1000;
+    int i;
+
+    fds[0].fd = recvFIFO;
+    fds[0].events = POLLIN;
+
+    printf("Looking for server already running...\n");
+    i = poll(fds, 1, timeout_msecs);
+
+    if (i > 0)
+    {
+        // read the answer of an already present server
+        char buf[MAX_BUF];
+        size_t len = read(recvFIFO, buf, MAX_BUF);
+        buf[len] = '\0';
+        printf("Another server is already running\n");
     }
+    return i;
+}
+
+int main(int argc, char *argv[])
+{
+    signal(SIGPIPE, SIG_IGN);
+    srand((unsigned int)time(NULL));
+    
+    points_to_win = 13;
+    num_players = 10;
+    
+    // check for other servers running
+    if(otherServerIsUp() != 0)
+        return -1;
+    
+    // array of the players
+    players = calloc(num_players, sizeof(*players));
+    // question message
+    question = calloc(strlen(Q_FORMAT) + 1, sizeof(*question));
+    // result of the question
+    res = createQuestion(question);
 
     
-    unlink(client_path);
-    pthread_mutex_destroy(&lock);
+	// create the FIFO 
+    mkfifo(SERVER_PATH, 0666);
+    // open the input FIFO with read and write permissions to avoid blocks
+    int serverFIFO;
+    if((serverFIFO = open(SERVER_PATH, O_RDWR)) != -1)
+        printf("Server started...\n"KBLU "First question generated: %s (%d)\n" RESET, question, res);
+    
+    
+    while (serverFIFO != -1)
+    {
+        // buffer for incoming messagges
+        char buf[MAX_BUF];
+        size_t len;
+        
+        // read incoming messages from the FIFO
+    	if((len = read(serverFIFO, buf, MAX_BUF)) <= 0) continue;
+        buf[len] = '\0';
+        
+        // get the operation requested by client
+        char * data;
+        char * operation = strtok_r(buf, DELIM, &data);
+
+        // what operation is it?
+        if (!strcmp(operation, MSG_JOIN)) // a new client requested to join
+        {
+            joinPlayer(data);
+        }
+        else if (!strcmp(operation, MSG_QUIT)) // a client left
+        {
+            leftPlayer(data);
+        }
+        else if (!strcmp(operation, MSG_ANSWER)) // received answer
+        {
+            answer(data);
+        }
+        else if (!strcmp(operation, MSG_FERRARELLE))
+        {
+            // a new server is looking for older one
+             thisIsMyTerritory(data);
+        }
+        
+    }
+    
+    close(serverFIFO);    
+    /* remove the FIFO */
+    unlink(SERVER_PATH);
 
 
     return 0;
+}
+
+
+
+
+
+//if (!parse_args(argc, argv, &max_players, &points_to_win)) {
+// if not all parameters are passed...
+//    printf("Usage: ./sever --max <maxplayers> --win <winningpoint\n");
+// ...close
+//    return -1;
+//}
+
+/*
+ parse the max palyer number and the winning point from the parameters passed to the executable
+ */
+int parse_args(int argc, char *argv[], int *max_players, int *points_to_win)
+{
+    int option_index = 0;
+    int c;
+    int n_flag = 0;
+    int p_flag = 0;
+    
+    // define the params that the server expects
+    static struct option long_options[] = {
+        {"max",  required_argument, 0,  'm' },
+        {"win",  required_argument, 0,  'w' }
+    };
+    
+    // iterate over the parameters
+    while ((c = getopt_long(argc, argv,"m:w:",
+                            long_options, &option_index )) != -1) {
+        int tmp;
+        switch (c) {
+            case 'm' : /* --max */
+                // param found
+                n_flag = 1;
+                // convert parameter to int
+                tmp = atoi(optarg);
+                // check restrictions
+                if (tmp >= MIN_PLAYERS && tmp <= MAX_PLAYERS) {
+                    *max_players = tmp;
+                }
+                else {
+                    // inform the user and set to var default value
+                    printf("--max argument must be between %d and %d, using %d\n", MIN_PLAYERS, MAX_PLAYERS, MAX_PLAYERS);
+                    *max_players = MAX_PLAYERS;
+                }
+                break;
+            case 'w' : /* --win */
+                p_flag = 1;
+                tmp = atoi(optarg);
+                // check restrictions
+                if (tmp >= MIN_POINTS && tmp <= MAX_POINTS) {
+                    *points_to_win = tmp;
+                }
+                else {
+                    // inform the user and set to var default value
+                    printf("--win argument must be between %d and %d, using %d\n", MIN_POINTS, MAX_POINTS, MAX_POINTS);
+                    *points_to_win = MAX_POINTS;
+                }
+                break;
+        }
+    }
+    
+    // check whether all params where passed
+    return n_flag && p_flag;
 }
