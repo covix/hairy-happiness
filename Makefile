@@ -1,29 +1,29 @@
 CC	=	gcc
+SRC = src/project.c src/client.c src/server.c
+VPATH = src
 
 .PHONY: clean
 
 
 all: 
-	@echo "This is the 2014/2015 project of lab os"
+	@echo "This is the 2014/2015 project of os lab"
 	@echo "possible target:"
 	@echo "\tbin"
 	@echo "\tassets"
 	@echo "\ttest"
-	@echo "\tbin"
+	@echo "\tclean"
 
 
-bin: client.c server.c
+bin: project.c client.c server.c
 	@echo "compiling inside the bin directory"
 	mkdir -p bin
-	$(CC) client.c -o bin/client.out
-	$(CC) server.c -o bin/server.out
+	$(CC) src/project.c -o bin/project.out
 
 
 assets:
 	@echo "fileing"
-	if [ ! -d "assets" ]; then
-		mkdir assets
-	fi
+	mkdir -p assets
+	rm assets/*
 	touch assets/1 assets/2
 
 
@@ -33,3 +33,4 @@ test: bin assets
 
 clean: 
 	@echo "clean"
+	rm -rf assets bin
