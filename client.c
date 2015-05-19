@@ -60,20 +60,25 @@
 #define H_ANSWER 11
 
 
-
+// mutex for writing on the console
 pthread_mutex_t lock;
 
+// I'm the i-th player
 int myIndex;
+// my name
 char * name;
+// my points
 int point;
+// points needed to win
 int points_to_win;
 
+// FIFO used for the communication
 int recvFIFO;
 int sendFIFO;
 
 
 /*
-    transform the 
+    return a formatted string
 */
 char * toString ( const char * format, ... )
 {
@@ -86,6 +91,7 @@ char * toString ( const char * format, ... )
 }
 
 
+// print format at the position (x, y) with color 'color'
 void printToCoordinates(int x, int y, char* color, const char * format, ...)
 {
     char buffer[MAX_BUF];
@@ -117,11 +123,13 @@ char* verifyMe(char *data)
     return data;
 }
 
-
+/*
+    print the players list
+*/
 void printPlayerList(char *data)
 {
-    for (int i=41;i<80;i++)
-        for(int j=H_PLAYERLIST;j<20;j++)
+    for (int i = 41; i < 80; i++)
+        for(int j = H_PLAYERLIST; j < 20; j++)
             printToCoordinates(i, j, RESET, " ");
     
     char * list;
@@ -140,11 +148,21 @@ void printPlayerList(char *data)
         h++;
     } while ((str = strtok_r(list, "|", &list)) != NULL);
 }
+
+
+/*
+    print news
+*/
 void printNews(char * buf)
 {
     for(int i=41;i<80;i++) printToCoordinates(i, H_NEWS, RESET, " ");
     printToCoordinates(60-(int)strlen(buf)/2, H_NEWS, RESET, buf);
 }
+
+
+/* 
+    all the next functions do exactly what their name say
+*/
 void printNumb()
 {
     for(int i=41;i<80;i++) printToCoordinates(i, H_POINT, RESET," ");
@@ -198,8 +216,6 @@ void printField()
 }
 
 
-
-
 /*
     manage the user interaction with the game
 */
@@ -237,6 +253,7 @@ void read_fifo()
             }
             else if (!strcmp(op, MSG_JOIN))
             {
+                // new player is trying to join
                 char *nameJoined = verifyMe(strtok_r(NULL, DELIM, &data));
                 int pointJoined = atoi(strtok_r(NULL, DELIM, &data));
                 
@@ -260,11 +277,13 @@ void read_fifo()
             {
                 printPlayerList(strtok_r(NULL, DELIM, &data));
             }
-            //TODO server close
         }
     }
 }
 
+/*
+    write to server
+*/
 ssize_t writeToServer(char * text)
 {
     ssize_t erro = write(sendFIFO, text, MAX_BUF);
@@ -278,6 +297,10 @@ ssize_t writeToServer(char * text)
     return erro;
 }
 
+
+/*
+    keep reading from the console
+*/
 void read_console()
 {
     while (1)
