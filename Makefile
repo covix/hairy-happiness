@@ -24,11 +24,15 @@ assets:
 	@echo "fileing"
 	mkdir -p assets
 	rm -rf assets/*
-	touch assets/1 assets/2
+	@echo "alpha\n100\n52\n37\n46\n51\n131\n123\n87\n42" > assets/1
+	@echo "beta\n98\n44\n16\n198\n156\n87\n45\n54\n13" > assets/2
 
 
 test: bin assets
 	@echo "testing"
+	bin/project.out server --max 10 --win 10 &
+	bin/project.out client < assets/2 &
+	bin/project.out client < assets/1 &
 
 
 clean: 
