@@ -14,16 +14,16 @@ all:
 	@echo "\tclean"
 
 
-bin: project.c client.c server.c
+bin: project.c client.c server.c common.c
 	@echo "compiling inside the bin directory"
 	mkdir -p bin
-	$(CC) src/project.c -o bin/project.out
+	$(CC) src/project.c src/server.c src/client.c src/common.c -o bin/project.out
 
 
 assets:
 	@echo "fileing"
 	mkdir -p assets
-	rm assets/*
+	rm -rf assets/*
 	touch assets/1 assets/2
 
 

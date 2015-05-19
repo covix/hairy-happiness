@@ -1,5 +1,5 @@
 /* 
-    server.h
+    server.c
 */
 
 #include <fcntl.h>
@@ -13,6 +13,9 @@
 #include <getopt.h>
 #include <errno.h>
 #include <poll.h>
+#include "common.h"
+#include "server.h"
+
 
 #define MAX_BUF 1024
 #define NAME_LEN 11
@@ -56,15 +59,6 @@
 
 
 ssize_t writeLella(int index, char * text);
-char * toString ( const char * format, ... )
-{
-    char buffer[MAX_BUF];
-    va_list args;
-    va_start (args, format);
-    vsprintf (buffer,format, args);
-    va_end (args);
-    return strdup(buffer);
-}
 
 
 /*
@@ -477,7 +471,7 @@ int parse_args(int argc, char *argv[])
 /* 
     Entry point of the program
 */
-int main(int argc, char *argv[])
+int main_server(int argc, char *argv[])
 {
     signal(SIGPIPE, SIG_IGN);
     srand((unsigned int)time(NULL));

@@ -1,5 +1,5 @@
 /*
-    client.h
+    client.c
 */
 
 #include <fcntl.h>
@@ -13,6 +13,9 @@
 #include <string.h>
 #include <pthread.h>
 #include <errno.h>
+#include "common.h"
+#include "client.h"
+
 
 #define MAX_BUF 1024
 #define NAME_LEN 11
@@ -75,20 +78,6 @@ int points_to_win;
 // FIFO used for the communication
 int recvFIFO;
 int sendFIFO;
-
-
-/*
-    return a formatted string
-*/
-char * toString ( const char * format, ... )
-{
-    char buffer[MAX_BUF];
-    va_list args;
-    va_start (args, format);
-    vsprintf (buffer,format, args);
-    va_end (args);
-    return strdup(buffer);
-}
 
 
 // print format at the position (x, y) with color 'color'
@@ -354,7 +343,7 @@ void read_console()
 }
 
 
-int main()
+int main_client()
 {
     signal(SIGPIPE, SIG_IGN);
     pthread_mutex_init(&lock, NULL);
@@ -376,7 +365,7 @@ int main()
     if((sendFIFO = open(SERVER_PATH, O_WRONLY | O_NONBLOCK)) == -1)
     {
         clearAll();
-        printf(KGRN"Server not exist\n"RESET);
+        printf(KGRN"Server does not exist\n"RESET);
         return -1;
     }
     
