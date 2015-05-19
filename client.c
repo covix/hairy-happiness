@@ -168,29 +168,41 @@ void printNumb()
     for(int i=41;i<80;i++) printToCoordinates(i, H_POINT, RESET," ");
     printToCoordinates(60-((int)strlen(toString("%d",point))/2), H_POINT, RESET,toString("%d",point));
 }
+
+
 void clearAnswer()
 {
     for(int i=0;i<40;i++) printToCoordinates(i, H_ANSWER, RESET," ");
 }
+
+
 void printQuestion(char *buf)
 {
     for(int i=0;i<40;i++) printToCoordinates(i, H_QUESTION, RESET," ");
     printToCoordinates(20-(int)strlen(buf)/2, H_QUESTION, RESET,buf);
     clearAnswer();
 }
+
+
 void clearInfoQuestion()
 {
     for(int i=0;i<40;i++) printToCoordinates(i, H_INFOQUEST,RESET, " ");
 }
+
+
 void printInfoQuestion(char *buf, int color)
 {
     clearInfoQuestion();
     printToCoordinates(20-(int)strlen(buf)/2, H_INFOQUEST, (color == 0)?KGRN:KRED,buf);
 }
+
+
 void clearAll()
 {
     write(1,"\E[H\E[2J",7);
 }
+
+
 void printField()
 {
     clearAll();
@@ -280,6 +292,7 @@ void read_fifo()
         }
     }
 }
+
 
 /*
     write to server
