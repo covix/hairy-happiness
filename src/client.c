@@ -2,65 +2,8 @@
     client.c
 */
 
-#include <fcntl.h>
-#include <stdarg.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
-#include <string.h>
-#include <pthread.h>
-#include <errno.h>
 #include "common.h"
-#include "client.h"
 
-
-#define MAX_BUF 1024
-#define NAME_LEN 11
-#define SERVER_PATH "/tmp/hairy-happiness"
-#define DELIM ";"
-
-// message const for communication
-#define MSG_QUESTION "q"
-#define MSG_ACCEPTED "accepted"
-#define MSG_NOTACCEPTED "nope"
-#define MSG_JOIN "join"
-#define MSG_ANSWER "answer"
-#define MSG_INCORRECT "no"
-#define MSG_CORRECT "yes"
-#define MSG_END "end"
-#define MSG_QUIT "quit"
-#define MSG_REFH "refresh"
-
-
-#define ERR_NOTACCSF -1
-#define ERR_NOTACCAE -2
-#define ERR_SERVERDEATH 43213
-
-// define term colors
-#define KNRM  "\x1B[0m"
-#define KRED  "\x1B[31m"
-#define KGRN  "\x1B[32m"
-#define KYEL  "\x1B[33m"
-#define KBLU  "\x1B[34m"
-#define KMAG  "\x1B[35m"
-#define KCYN  "\x1B[36m"
-#define KWHT  "\x1B[37m"
-#define RESET "\033[0m"
-
-#define H_POINT 3
-#define H_NAME 3
-#define H_TLQUESTION 8
-#define H_INFOQUEST 12
-#define H_TLNEWS 6
-#define H_QUESTION 10
-#define H_NEWS 7
-#define H_TLPLAYERLIST 9
-#define H_SUBTLPLAYLIST 10
-#define H_PLAYERLIST 11
-#define H_ANSWER 11
 
 
 // mutex for writing on the console
@@ -73,7 +16,7 @@ char * name;
 // my points
 int point;
 // points needed to win
-int points_to_win;
+int pointsToWinClient;
 
 // FIFO used for the communication
 int recvFIFO;
@@ -185,6 +128,17 @@ void printInfoQuestion(char *buf, int color)
     printToCoordinates(20-(int)strlen(buf)/2, H_INFOQUEST, (color == 0)?KGRN:KRED,buf);
 }
 
+void printEndGame(char *buf)
+{
+    for(int i=0;i<40;i++) printToCoordinates(i, H_ENDGAME, RESET," ");
+    printToCoordinates(20-(int)strlen(buf)/2, H_ENDGAME, KBLU,buf);
+    clearAnswer();
+    
+    //move to finish
+    char buffer[MAX_BUF];
+    strcpy(buffer, toString("\033[%d;0H", 22));
+    write(2, buffer, strlen(buffer));
+}
 
 void clearAll()
 {
@@ -201,7 +155,7 @@ void printField()
     printToCoordinates(20-(strlen("Your name")/2), H_NAME-1, KGRN, "Your name");
     printToCoordinates(20-((int)strlen(name)/2), H_NAME, RESET, name);
     
-    printToCoordinates(60-((int)strlen(toString("Point (to win: %d)",points_to_win))/2), H_POINT-1, KGRN, "Point (to win: %d)",points_to_win);
+    printToCoordinates(60-((int)strlen(toString("Point (to win: %d)",pointsToWinClient))/2), H_POINT-1, KGRN, "Point (to win: %d)",pointsToWinClient);
     printNumb();
     
     printToCoordinates(20-(strlen("Question")/2), H_TLQUESTION, KYEL, "Question");
@@ -211,7 +165,7 @@ void printField()
     printToCoordinates(65-strlen("Point")/2, H_SUBTLPLAYLIST, KRED, "Point");
     
     
-    for(int i=0;i<19;i++)
+    for(int i=0;i<15;i++)
         printToCoordinates(40, 5+i, KBLU,"|");
     
 }
@@ -252,6 +206,11 @@ void read_fifo()
                 clearAnswer();
                 printInfoQuestion("Your answer is not correct", 1);
             }
+            else if (!strcmp(op, MSG_SLOW))
+            {
+                clearAnswer();
+                printInfoQuestion("You are slow", 1);
+            }
             else if (!strcmp(op, MSG_JOIN))
             {
                 // new player is trying to join
@@ -268,6 +227,10 @@ void read_fifo()
                 
                 printNews(toString("%s win! with %d points", nameWinner, pointWinner));
                 printPlayerList(strtok_r(NULL, DELIM, &data));
+                printInfoQuestion("", 0);
+                
+                printEndGame("Game ended");
+                exit(2);
             }
             else if (!strcmp(op, MSG_QUIT))
             {
@@ -399,7 +362,7 @@ int main_client()
             // get the index of this client on the server
             myIndex = atoi(strtok(NULL, DELIM));
             point = atoi(strtok(NULL, DELIM));
-            points_to_win = atoi(strtok(NULL, DELIM));
+            pointsToWinClient = atoi(strtok(NULL, DELIM));
             
             
             printField();
