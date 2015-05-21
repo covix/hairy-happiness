@@ -1,9 +1,7 @@
 /*
 	common.c
 */
-#include <stdio.h>
-#include <stdarg.h>
-#include <string.h>
+#include "common.h"
 
 /*
     return a formatted string
