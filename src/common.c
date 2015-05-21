@@ -5,8 +5,6 @@
 #include <stdarg.h>
 #include <string.h>
 
-#define MAX_BUF 1024
-
 /*
     return a formatted string
 */
