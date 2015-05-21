@@ -2,60 +2,9 @@
     server.c
 */
 
-#include <fcntl.h>
-#include <stdio.h>
-#include <stdarg.h>
-#include <stdlib.h>
-#include <sys/stat.h>
-#include <string.h>
-#include <unistd.h>
-#include <time.h>
-#include <getopt.h>
-#include <errno.h>
-#include <poll.h>
+
+
 #include "common.h"
-#include "server.h"
-
-
-#define MAX_BUF 1024
-#define NAME_LEN 11
-#define SERVER_PATH "/tmp/hairy-happiness"
-#define MAX_PLAYERS 10
-#define MIN_PLAYERS 0
-#define MAX_POINTS 100
-#define MIN_POINTS 10
-#define Q_FORMAT "%d + %d ="
-#define DELIM ";"
-
-// message const for communication
-#define MSG_QUESTION "q"
-#define MSG_ACCEPTED "accepted"
-#define MSG_NOTACCEPTED "nope"
-#define MSG_JOIN "join"
-#define MSG_ANSWER "answer"
-#define MSG_INCORRECT "no"
-#define MSG_CORRECT "yes"
-#define MSG_END "end"
-#define MSG_QUIT "quit"
-#define MSG_REFH "refresh"
-#define MSG_FERRARELLE "server?"
-#define MSG_ROCCHETTA "alive"
-
-
-#define ERR_NOTACCSF -1
-#define ERR_NOTACCAE -2
-
-
-// define term colors
-#define KNRM  "\x1B[0m"
-#define KRED  "\x1B[31m"
-#define KGRN  "\x1B[32m"
-#define KYEL  "\x1B[33m"
-#define KBLU  "\x1B[34m"
-#define KMAG  "\x1B[35m"
-#define KCYN  "\x1B[36m"
-#define KWHT  "\x1B[37m"
-#define RESET "\033[0m"
 
 
 ssize_t writeLella(int index, char * text);
@@ -78,7 +27,7 @@ player *players;
 int num_players;
 
 // point to win
-int points_to_win;
+int pointsToWinServer;
 
 // question message
 char* question;
@@ -127,7 +76,6 @@ void sendQuestionToAll()
         if (players[i].active)
             writeLella(i, toString("%s%s%s%s%s", MSG_QUESTION, DELIM, question, DELIM, encodeListPlayers()));
 }
-
 
 /* 
     send end information to all the client
@@ -226,18 +174,24 @@ void answer(char * response)
     {
         players[index].point++;
         
-        if (players[index].point == points_to_win) // player is the winner
+        if (players[index].point == pointsToWinServer) // player is the winner
         {
             printf(KBLU"The winner is %s with %d point\n"RESET, players[index].name, players[index].point);
             
             sendEndGameToAll(players[index]);
+            
+            printf(KGRN"End Server\n"RESET);
+            exit(1);
         }
         else // answer is right
         {
             printf(KBLU"Correct answer by %s (point:%d)\n"RESET, players[index].name, players[index].point);
             
             writeLella(index, toString("%s%s%d", MSG_CORRECT, DELIM, players[index].point));
-
+            for (int i = 0; i < num_players; i++)
+                if (players[i].active && i != index)
+                    writeLella(i, toString("%s", MSG_SLOW));
+            
             // create and send the question to everybody
             res = createQuestion(question);
             printf(KBLU"Generate other question: %s (%d)\n"RESET, question, res);
@@ -327,7 +281,7 @@ void joinPlayer(char * response)
         printf(KGRN "Player join: '%s'(%d) with %d point\n" RESET, pl.name, index, pl.point);
 
         // inform the client it has been accepted
-        writeLella(index, toString("%s%s%d%s%d%s%d", MSG_ACCEPTED, DELIM, index, DELIM, pl.point, DELIM, points_to_win));
+        writeLella(index, toString("%s%s%d%s%d%s%d", MSG_ACCEPTED, DELIM, index, DELIM, pl.point, DELIM, pointsToWinServer));
 
         // send the question to the client
         writeLella(index, toString("%s%s%s%s%s", MSG_QUESTION, DELIM, question, DELIM, encodeListPlayers()));
@@ -422,16 +376,18 @@ int parse_args(int argc, char *argv[])
     int p_flag = 0;
     
     // define the params that the server expects
-    static struct option long_options[] = {
+    static struct option long_options[] =
+    {
         {"max",  required_argument, 0,  'm' },
         {"win",  required_argument, 0,  'w' }
     };
     
     // iterate over the parameters
-    while ((c = getopt_long(argc, argv,"m:w:",
-                            long_options, &option_index )) != -1) {
+    while ((c = getopt_long(argc, argv,"m:w:", long_options, &option_index )) != -1)
+    {
         int tmp;
-        switch (c) {
+        switch (c)
+        {
             case 'm' : /* --max */
                 // param found
                 n_flag = 1;
@@ -452,12 +408,12 @@ int parse_args(int argc, char *argv[])
                 tmp = atoi(optarg);
                 // check restrictions
                 if (tmp >= MIN_POINTS && tmp <= MAX_POINTS) {
-                    points_to_win = tmp;
+                    pointsToWinServer = tmp;
                 }
                 else {
                     // inform the user and set to var default value
                     printf("--win argument must be between %d and %d, using %d\n", MIN_POINTS, MAX_POINTS, MAX_POINTS);
-                    points_to_win = MAX_POINTS;
+                    pointsToWinServer = MAX_POINTS;
                 }
                 break;
         }
@@ -485,7 +441,7 @@ int main_server(int argc, char *argv[])
     }
     
     // used for debug
-    // points_to_win = 13;
+    // pointsToWinServer = 13;
     // num_players = 10;
     
 
