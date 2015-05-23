@@ -7,7 +7,7 @@
 #include "common.h"
 
 
-ssize_t writeLella(int index, char * text);
+ssize_t writeIfActive(int index, char * text);
 
 
 /*
@@ -74,7 +74,7 @@ void sendQuestionToAll()
 {
     for (int i = 0; i < num_players; i++)
         if (players[i].active)
-            writeLella(i, toString("%s%s%s%s%s", MSG_QUESTION, DELIM, question, DELIM, encodeListPlayers()));
+            writeIfActive(i, toString("%s%s%s%s%s", MSG_QUESTION, DELIM, question, DELIM, encodeListPlayers()));
 }
 
 /* 
@@ -84,7 +84,7 @@ void sendEndGameToAll(player winner)
 {
     for (int i = 0; i < num_players; i++)
         if (players[i].active)
-            writeLella(i, toString("%s%s%s%s%d%s%s", MSG_END, DELIM, winner.name, DELIM, winner.point, DELIM, encodeListPlayers()));
+            writeIfActive(i, toString("%s%s%s%s%d%s%s", MSG_END, DELIM, winner.name, DELIM, winner.point, DELIM, encodeListPlayers()));
 }
 
 
@@ -95,7 +95,7 @@ void sendQuitToAll(player pl)
 {
     for (int i = 0; i < num_players; i++)
         if (players[i].active)
-            writeLella(i, toString("%s%s%s%s%s", MSG_QUIT, DELIM, pl.name, DELIM, encodeListPlayers()));
+            writeIfActive(i, toString("%s%s%s%s%s", MSG_QUIT, DELIM, pl.name, DELIM, encodeListPlayers()));
 }
 
 
@@ -106,7 +106,7 @@ void sendRefreshScoreToAll()
 {
     for (int i = 0; i < num_players; i++)
         if (players[i].active)
-            writeLella(i, toString("%s%s%s", MSG_REFH, DELIM, encodeListPlayers()));
+            writeIfActive(i, toString("%s%s%s", MSG_REFH, DELIM, encodeListPlayers()));
 }
 
 
@@ -117,14 +117,14 @@ void sendJoinToAll(player pl)
 {
     for (int i = 0; i < num_players; i++)
         if (players[i].active)
-            writeLella(i, toString("%s%s%s%s%d%s%s", MSG_JOIN, DELIM, pl.name, DELIM, pl.point, DELIM, encodeListPlayers()));
+            writeIfActive(i, toString("%s%s%s%s%d%s%s", MSG_JOIN, DELIM, pl.name, DELIM, pl.point, DELIM, encodeListPlayers()));
 }
 
 
 /*
     write 'text' to the player with index 'index' and check if it is still active; if it isn't, notify all the client about his death
 */
-ssize_t writeLella(int index, char * text)
+ssize_t writeIfActive(int index, char * text)
 {
     ssize_t erro = write(players[index].fifo, text, MAX_BUF);
     if(erro == -1)
@@ -134,7 +134,7 @@ ssize_t writeLella(int index, char * text)
         
         // disable the user
         players[index].active = 0;
-        
+
         // inform to all of a user's death
         sendQuitToAll(players[index]);
     }
@@ -187,10 +187,10 @@ void answer(char * response)
         {
             printf(KBLU"Correct answer by %s (point:%d)\n"RESET, players[index].name, players[index].point);
             
-            writeLella(index, toString("%s%s%d", MSG_CORRECT, DELIM, players[index].point));
+            writeIfActive(index, toString("%s%s%d", MSG_CORRECT, DELIM, players[index].point));
             for (int i = 0; i < num_players; i++)
                 if (players[i].active && i != index)
-                    writeLella(i, toString("%s", MSG_SLOW));
+                    writeIfActive(i, toString("%s", MSG_SLOW));
             
             // create and send the question to everybody
             res = createQuestion(question);
@@ -205,7 +205,7 @@ void answer(char * response)
         
         printf(KBLU"Incorrect answer by %s (point:%d)\n" RESET, players[index].name, players[index].point);
         
-        writeLella(index, toString("%s%s%d", MSG_INCORRECT, DELIM, players[index].point));
+        writeIfActive(index, toString("%s%s%d", MSG_INCORRECT, DELIM, players[index].point));
         sendRefreshScoreToAll();
     }
 }
@@ -218,7 +218,7 @@ void refreshAlive()
 {
     for (int i = 0; i < num_players; i++)
         if (players[i].active)
-            writeLella(i, MSG_FERRARELLE);
+            writeIfActive(i, MSG_FERRARELLE);
 }
 
 
@@ -244,7 +244,8 @@ int indexOfEmptyAndNoNameAlreadyExist(char *name)
     return the number of active players
  */
 int countPlayer()
-{
+{   
+    refreshAlive();
     int count = 0;
     for (int i = 0; i < num_players; ++i)
         if (players[i].active)
@@ -281,10 +282,10 @@ void joinPlayer(char * response)
         printf(KGRN "Player join: '%s'(%d) with %d point\n" RESET, pl.name, index, pl.point);
 
         // inform the client it has been accepted
-        writeLella(index, toString("%s%s%d%s%d%s%d", MSG_ACCEPTED, DELIM, index, DELIM, pl.point, DELIM, pointsToWinServer));
+        writeIfActive(index, toString("%s%s%d%s%d%s%d", MSG_ACCEPTED, DELIM, index, DELIM, pl.point, DELIM, pointsToWinServer));
 
         // send the question to the client
-        writeLella(index, toString("%s%s%s%s%s", MSG_QUESTION, DELIM, question, DELIM, encodeListPlayers()));
+        writeIfActive(index, toString("%s%s%s%s%s", MSG_QUESTION, DELIM, question, DELIM, encodeListPlayers()));
         
         // send to all join new player
         sendJoinToAll(players[index]);
@@ -499,6 +500,9 @@ int main_server(int argc, char *argv[])
         {
             // a new server is looking for older one
              thisIsMyTerritory(data);
+        }
+        else {
+            printf(KRED"Received message not expected\n"RESET);
         }
         
     }

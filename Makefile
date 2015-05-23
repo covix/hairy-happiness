@@ -41,5 +41,5 @@ test: bin assets
 
 clean: 
 	@echo "removing all the generated files"
-	rm -rf assets bin
+	@rm -rf assets bin
 	@echo "cleaned"

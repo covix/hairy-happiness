@@ -43,7 +43,6 @@
 #define MSG_FERRARELLE "server?"
 #define MSG_ROCCHETTA "alive"
 
-
 // message const for communication
 #define ERR_NOTACCSF -1
 #define ERR_NOTACCAE -2
