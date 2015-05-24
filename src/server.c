@@ -181,7 +181,7 @@ void answer(char * response)
     {
         players[index].point++;
         
-        if (players[index].point == pointsToWinServer) // player is the winner
+        if (players[index].point >= pointsToWinServer) // player is the winner
         {
             printf(KBLU"The winner is %s with %d point\n"RESET, players[index].name, players[index].point);
             
