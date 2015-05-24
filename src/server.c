@@ -3,8 +3,15 @@
 */
 
 
-
 #include "common.h"
+
+
+#define CLIENT_TO_TEST 2
+
+
+
+// used for closing the server automatically
+extern int TEST;
 
 
 ssize_t writeIfActive(int index, char * text);
@@ -440,11 +447,8 @@ int main_server(int argc, char *argv[])
         // ...close
         return -1;
     }
-    
-    // used for debug
-    // pointsToWinServer = 13;
-    // num_players = 10;
-    
+
+    int client_to_test = CLIENT_TO_TEST;
 
     // check for other servers running
     if(otherServerIsUp() != 0)
@@ -466,7 +470,7 @@ int main_server(int argc, char *argv[])
         printf("Server started...\n"KBLU "First question generated: %s (%d)\n" RESET, question, res);
     
     
-    while (serverFIFO != -1)
+    while (serverFIFO != -1 && client_to_test)
     {
         // buffer for incoming messagges
         char buf[MAX_BUF];
@@ -489,6 +493,9 @@ int main_server(int argc, char *argv[])
         else if (!strcmp(operation, MSG_QUIT)) 
         {
             // a client left
+            if (TEST) {
+                client_to_test--;
+            }
             leftPlayer(data);
         }
         else if (!strcmp(operation, MSG_ANSWER))
@@ -504,7 +511,6 @@ int main_server(int argc, char *argv[])
         else {
             printf(KRED"Received message not expected\n"RESET);
         }
-        
     }
     
     close(serverFIFO);    

@@ -1,6 +1,7 @@
 CC	=	gcc -std=gnu99 -pthread
 SRC = src/project.c src/client.c src/server.c
 VPATH = src
+OUT_NAME = project
 
 .PHONY: clean bin
 
@@ -18,9 +19,9 @@ bin: project.c client.c server.c common.c
 	@echo "compiling inside the bin directory"
 	@rm -rf bin
 	@mkdir -p bin
-	$(CC) src/project.c src/server.c src/client.c src/common.c -o bin/project
+	$(CC) src/project.c src/server.c src/client.c src/common.c -o bin/$(OUT_NAME)
 	@echo "executable compilated"
-	@echo "use './bin/project' to play"
+	@echo "use './bin/$(OUT_NAME)' to play"
 
 
 assets:
@@ -33,9 +34,9 @@ assets:
 
 test: bin assets
 	@echo "executing some test"
-	bin/project.out server --max 10 --win 10 &
-	bin/project.out client < assets/2 &
-	bin/project.out client < assets/1 &
+	bin/$(OUT_NAME) test server --max 10 --win 10 &
+	bin/$(OUT_NAME) test client < assets/2 &
+	bin/$(OUT_NAME) test client < assets/1 &
 	@echo "all went good"
 
 

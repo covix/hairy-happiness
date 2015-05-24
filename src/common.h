@@ -72,8 +72,6 @@
 #define H_PLAYERLIST 11
 #define H_ANSWER 11
 
-
-
 /*
  return a formatted string
  */

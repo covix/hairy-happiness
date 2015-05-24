@@ -5,6 +5,9 @@
 #include "common.h"
 
 
+// used for changing the output mode
+extern int TEST;
+
 
 // mutex for writing on the console
 pthread_mutex_t lock;
@@ -26,21 +29,23 @@ int sendFIFO;
 // print format at the position (x, y) with color 'color'
 void printToCoordinates(int x, int y, char* color, const char * format, ...)
 {
-    char buffer[MAX_BUF];
-    va_list args;
-    va_start (args, format);
-    vsprintf (buffer,format, args);
-    va_end (args);
-    
-    pthread_mutex_lock(&lock);
-    
-    strcpy(buffer, toString("%s\033[%d;%dH%s%s",color, y, x, strdup(buffer), RESET));
-    write(2, buffer, strlen(buffer));
-    
-    strcpy(buffer, toString("\033[%d;19H",H_ANSWER));
-    write(2, buffer, strlen(buffer));
-    
-    pthread_mutex_unlock(&lock);
+    if (!TEST) {
+        char buffer[MAX_BUF];
+        va_list args;
+        va_start (args, format);
+        vsprintf (buffer,format, args);
+        va_end (args);
+        
+        pthread_mutex_lock(&lock);
+        
+        strcpy(buffer, toString("%s\033[%d;%dH%s%s",color, y, x, strdup(buffer), RESET));
+        write(2, buffer, strlen(buffer));
+        
+        strcpy(buffer, toString("\033[%d;19H",H_ANSWER));
+        write(2, buffer, strlen(buffer));
+        pthread_mutex_unlock(&lock);
+    }
+
 }
 
 
@@ -271,14 +276,20 @@ void read_console()
     while (1)
     {
         // wait for the user to answer
-        char input[MAX_BUF];
-        size_t len = read(0, input, MAX_BUF);
-        input[len] = '\0';
+        char input[MAX_BUF] = "";
+        // size_t len = read(0, input, MAX_BUF);
+        // input[len] = '\0';
+        size_t len = scanf("%s", input);
+        // input[len] = '\0';
         
         clearInfoQuestion();
         
-        
-        if (!strcmp(input, "quit\n"))
+
+        if (len == -1) {
+            write(sendFIFO, toString("%s%s%d", MSG_QUIT, DELIM, myIndex), MAX_BUF);
+            break;
+        }
+        else if (!strcmp(input, "quit\n"))
         {
             write(sendFIFO, toString("%s%s%d", MSG_QUIT, DELIM, myIndex), MAX_BUF);
             clearAll();
@@ -296,7 +307,7 @@ void read_console()
                 printInfoQuestion("Insert a number please", 1);
                 clearAnswer();
             }
-            else // send the user answer
+            else // send the user's answer
             {
                 if(writeToServer(toString("%s%s%d%s%ld", MSG_ANSWER, DELIM, myIndex, DELIM, answer)) == ERR_SERVERDEATH)
                     break;
@@ -317,9 +328,8 @@ int main_client()
     printf("Enter your nickname: ");
     scanf("%10s", name);
     
-    
     // generate fifo name using timestamp  FIXME: timestamp has seconds precision
-    char *client_path = toString("/tmp/%u", (unsigned)time(NULL));
+    char *client_path = toString("/tmp/%s%u", name, (unsigned)time(NULL));
     // create the FIFO
     mkfifo(client_path, 0666);
     
@@ -345,7 +355,6 @@ int main_client()
     {
         buf[len] = '\0';
         
-        
         char * op = strtok(buf, DELIM);
         if (!strcmp(op, MSG_NOTACCEPTED))
         {
@@ -364,7 +373,6 @@ int main_client()
             point = atoi(strtok(NULL, DELIM));
             pointsToWinClient = atoi(strtok(NULL, DELIM));
             
-            
             printField();
             
             
@@ -378,8 +386,9 @@ int main_client()
     }
     
     close(recvFIFO);
-    unlink(client_path);
-    pthread_mutex_destroy(&lock);
+    // unlink(client_path); 
+    if (!TEST)
+        pthread_mutex_destroy(&lock);
     
     
     return 0;

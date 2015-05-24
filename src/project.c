@@ -11,17 +11,29 @@
 
 #define MAX_BUF 1024
 
+
+// used for changing the output mode
+int TEST = 0;
+
+
 int main(int argc, char *argv[]) {
 	if (argc < 2) {
 		printf("client or server?\n");
 		return -1;
 	}
 
-	if (!strcmp(argv[1], "client")) {
+	int i = 1;
+	if (!strcmp(argv[i], "test")) {
+		// set 'test' to true and read the behaviour (client or server) in the next par
+		TEST = 1;
+		i++;
+	}
+
+	if (!strcmp(argv[i], "client")) {
 		// launch client
 		main_client();
 	}
-	else if (!strcmp(argv[1], "server")) {
+	else if (!strcmp(argv[i], "server")) {
 		// launch server
 		main_server(argc, argv);
 
