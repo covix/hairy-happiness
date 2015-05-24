@@ -17,7 +17,6 @@ all:
 
 bin: project.c client.c server.c common.c
 	@echo "compiling inside the bin directory"
-	@rm -rf bin
 	@mkdir -p bin
 	$(CC) src/project.c src/server.c src/client.c src/common.c -o bin/$(OUT_NAME)
 	@echo "executable compilated"
